@@ -422,9 +422,15 @@ return function()
 				-- `CanQuery = false` (*"A RAY MUST NEVER MEET THIS"*) and this file turns it on as
 				-- an instrument. Reported, not asserted: the difference is how much of this case's
 				-- answer comes from the instrument rather than from the animal.
-				local noMeshIgnore: { Instance } = ownSpace()
-				for _, mesh in ipairs(meshes) do
-					table.insert(noMeshIgnore, mesh)
+				-- REBUILT PER CAST, like `ownSpace` and for its reason: the drive adds and removes
+				-- animals while this file runs, so a list built once reads a stale world (round 1
+				-- note). Reported only, never asserted, but a stale control is not a control.
+				local function noMeshIgnore(): { Instance }
+					local ignore = ownSpace()
+					for _, mesh in ipairs(meshes) do
+						table.insert(ignore, mesh)
+					end
+					return ignore
 				end
 				local bothNoMesh, airNoMesh, worstPasses = 0, 0, 0
 				local y = -half.Y - GRID
@@ -436,7 +442,7 @@ return function()
 						local origin = target + offset
 						local onMesh = Workspace:Raycast(origin, -offset * 2, meshParams) ~= nil
 						local zone = zoneAt(Vector3.new(0, y, z))
-						local zoneNoMesh = zoneAtIgnoring(Vector3.new(0, y, z), noMeshIgnore)
+						local zoneNoMesh = zoneAtIgnoring(Vector3.new(0, y, z), noMeshIgnore())
 						if zoneNoMesh ~= nil then
 							if onMesh then
 								bothNoMesh += 1

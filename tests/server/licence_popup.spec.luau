@@ -373,7 +373,19 @@ return function()
 			local heldRow = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
 			local before = Weapon.getSnapshot(subject)
 			if ammoAhead() == nil then
-				Weapon.onActionRequest(subject, "Reload", nil, nil)
+				-- THROUGH THE SAME RETRY AS `aimOnce` (round 1 note). `onActionRequest` drops a
+				-- request at the ACTION limiter before it reads anything, so a Reload asked once can
+				-- be answered "rate-limited" by the replay and the wait below would then spend its
+				-- whole budget on a gun nobody reloaded -- a new flake with the cause this task just
+				-- named. "not-ready" is retried for the same reason: the gun can be mid-cycle.
+				local why = Weapon.onActionRequest(subject, "Reload", nil, nil)
+				for _ = 1, 3 do
+					if why ~= "rate-limited" and why ~= "not-ready" then
+						break
+					end
+					task.wait(1.1)
+					why = Weapon.onActionRequest(subject, "Reload", nil, nil)
+				end
 				local deadline = os.clock() + 10
 				while ammoAhead() == nil and os.clock() < deadline do
 					task.wait(0.05)

@@ -168,7 +168,7 @@ return function()
 
 		local function withPartsGun(body)
 			Hardware.setTemplateProvider(nil)
-			local ok, why = pcall(body)
+			local ok, why = TestKit.tracedCall(body)
 			Hardware.setTemplateProvider(live)
 			if not ok then
 				error(why, 0)

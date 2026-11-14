@@ -90,7 +90,8 @@ local notProven: { string } = {}
 function TestKit.note(text: string)
 	table.insert(notes, text)
 	-- A CLAIM THIS RUN COULD NOT EXERCISE, counted here so the gate's own page carries the number
-	-- (task 367, TASKS.md 285). See `TestKit.NOT_PROVEN` above for why it is read out of the text.
+	-- (task 367, TASKS.md 285). `TestKit.NOT_PROVEN` is declared below, and the comment there says
+	-- why the marker is read out of the text rather than passed in.
 	if string.find(text, TestKit.NOT_PROVEN, 1, true) ~= nil then
 		table.insert(notProven, text)
 	end
@@ -102,8 +103,8 @@ end
 
 -- RUN `fn`, AND KEEP THE LINE THAT ACTUALLY BROKE (task 367).
 --
--- Twenty client cases are wrapped in `local ok, why = pcall(body)` ... `error(why, 0)`, so that the
--- live viewmodel, camera and cursor are always put back. `error(why, 0)` rethrows the MESSAGE, and
+-- Thirty-two cases -- 21 client, 11 server -- are wrapped in `local ok, why = pcall(body)` ...
+-- `error(why, 0)`, so that the live viewmodel, camera, cursor or asset seam is always put back. `error(why, 0)` rethrows the MESSAGE, and
 -- TestEZ then reports the rethrow site -- which is why `semiauto_client.spec:93` is the line in
 -- TASKS.md 281a(k) and `gun_client.spec:393` in this task's own run 4: both are the `error(why, 0)`
 -- in the wrapper, the same line for every case in the file, and neither says which claim failed.
@@ -126,9 +127,10 @@ end
 -- task 281's head and the report said PASS either way (TASKS.md 285). A `notProven` note is an
 -- ordinary note -- so nothing about pass or fail changes -- plus a COUNT the harness prints on its
 -- own line, so the Builder reads how much of the run was actually exercised.
--- THE WORDS THE SPECS ALREADY USE. Ten cases across five files end their fallback line with
--- "NOT PROVEN in this run", so the marker is read out of the note rather than requiring every one
--- of them to be rewritten -- and `TestKit.notProven` is the explicit way to say it for a new case.
+-- THE WORDS THE SPECS ALREADY USE. Eleven lines in two files end their fallback with "NOT PROVEN
+-- in this run" -- ten in `tests/server/weapon_shot.spec.luau` and one in `range.spec.luau` -- so the
+-- marker is read out of the note rather than requiring every one of them to be rewritten, and
+-- `TestKit.notProven` is the explicit way to say it for a new case.
 TestKit.NOT_PROVEN = "NOT PROVEN"
 
 function TestKit.notProven(text: string)

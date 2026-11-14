@@ -4620,6 +4620,11 @@ def run_test2(studio, wait_seconds=180):
             print(f"  note   [{name}] {note}")
         for failure in (reports.get(name) or {}).get("failures", []):
             print(f"  failed [{name}] {describe_failure(failure)}")
+        # ...AND HOW MUCH OF IT WAS EXERCISED (task 367, round 1 note): the one-player path prints
+        # this and `test2` did not, so a two-player run could not show its own gaps.
+        unproven = (reports.get(name) or {}).get("notProven", [])
+        if unproven:
+            print(f"  ----   [{name}] {len(unproven)} claim(s) NOT PROVEN in this run")
 
     for name in ("server", "shooter", "driver"):
         report = reports.get(name)

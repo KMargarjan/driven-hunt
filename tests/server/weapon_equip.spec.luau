@@ -310,7 +310,7 @@ return function()
 				end
 			end)
 
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				for _, tool in ipairs(Hardware.toolsOf(player)) do
 					tool:Destroy()
 				end
@@ -552,7 +552,7 @@ return function()
 			local mine = realGunOf(player)
 			local detached = Instance.new("Backpack")
 
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				Weapon.refreshArming(player, armed)
 				expect(waitUntil(6, function()
 					return #Hardware.toolsOf(player) >= #armed

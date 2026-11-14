@@ -929,7 +929,7 @@ return function()
 		local function withProvider(fn, body)
 			local live = Hardware.getTemplateProvider()
 			Hardware.setTemplateProvider(fn)
-			local ok, why = pcall(body)
+			local ok, why = TestKit.tracedCall(body)
 			Hardware.setTemplateProvider(live)
 			if not ok then
 				error(why, 0)

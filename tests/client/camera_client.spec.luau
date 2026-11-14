@@ -374,58 +374,63 @@ return function()
 			-- THE BUDGET IS THE CAMERA'S, SO THE SAMPLE HAS TO BE THE CAMERA'S (task 367).
 			--
 			-- MEASURED, 11 runs of the same commits: the session average read 0.126 ms in ten of
-			-- them and 0.336 ms in one (worst frame 0.909), over about 370 updates. 370 samples is a
-			-- short session -- the camera updates while it is doing something, not every frame -- so
-			-- one stretch of a starved client, with 2,998 server specs and a second Studio on the
-			-- same machine, moves the whole average past 0.3 and the case reports "false" about a
-			-- camera nobody changed.
+			-- them and 0.336 ms in one (worst frame 0.909), over about 370 frames. `stats.frames` is
+			-- EVERY rendered frame -- `Camera.update` is bound at `Enum.RenderPriority.Camera` and
+			-- `stats.frames += 1` sits in both of its arms with no earlier return -- so 370 by this
+			-- case means the case runs about six seconds into the client suite, and the session
+			-- average is an average over those six seconds. One starved stretch inside them, with
+			-- 2,998 server specs and a second Studio on the same machine, moves the whole thing past
+			-- 0.3 and the case reports "false" about a camera nobody changed.
 			--
 			-- SO THREE FRESH WINDOWS ARE MEASURED HERE and the BEST is what faces the budget. A
 			-- hitch cannot poison all three; a camera that genuinely costs more than its budget
-			-- poisons every one of them, so the 0.3 ms of design section 8.2 is not widened by a
-			-- thousandth. All three are reported either way.
-			local function windowAverage(updates: number): number?
+			-- poisons every one of them, so the 0.3 ms of `docs/design/camera.md` section 8.2 is not
+			-- widened by a thousandth. The STATISTIC does change -- from that section's session
+			-- `avgUpdateMs` to the least of three windows -- and the window is the 120 frames the
+			-- same section already names, so the sample is the design's and not a smaller one.
+			-- Section 8.2 and 9.2 item 17 still say `avgUpdateMs`: queued as TASKS.md 367(f), because
+			-- `docs/design/` is the Architect's.
+			local WINDOW_FRAMES = 120
+			-- A WINDOW IS 120 RENDERED FRAMES OR IT IS NOT A WINDOW. Returning a short one as though
+			-- it were full is how a one-frame sample would face a per-frame budget (round 1 finding
+			-- 1). 12 s is 120 frames at 10 fps, so a window that cannot be filled means the client
+			-- rendered below 10 fps -- a fault, which is what the assertion below then says.
+			local function windowAverage(): (number?, number)
 				local before = Camera.stats()
-				local deadline = os.clock() + 4
-				while Camera.stats().frames < before.frames + updates and os.clock() < deadline do
+				local deadline = os.clock() + 12
+				while Camera.stats().frames < before.frames + WINDOW_FRAMES and os.clock() < deadline do
 					RunService.RenderStepped:Wait()
 				end
 				local after = Camera.stats()
 				local took = after.frames - before.frames
-				if took <= 0 then
-					return nil
+				if took < WINDOW_FRAMES then
+					return nil, took
 				end
-				return (after.avgUpdateMs * after.frames - before.avgUpdateMs * before.frames) / took
+				return (after.avgUpdateMs * after.frames - before.avgUpdateMs * before.frames) / took, took
 			end
-			local windows: { number } = {}
+			local readings: { string } = {}
 			local best: number? = nil
 			for _ = 1, 3 do
-				local average = windowAverage(60)
+				local average, took = windowAverage()
 				if average ~= nil then
-					table.insert(windows, average)
+					table.insert(readings, string.format("%.3f ms over %d frames", average, took))
 					if best == nil or average < best then
 						best = average
 					end
+				else
+					table.insert(readings, string.format("SHORT: only %d of %d frames", took, WINDOW_FRAMES))
 				end
 			end
 			TestKit.note(
 				string.format(
-					"camera_client: three fresh windows averaged %s ms; best %.3f against the 0.3 budget",
-					table.concat(
-						(function()
-							local text = {}
-							for _, value in ipairs(windows) do
-								table.insert(text, string.format("%.3f", value))
-							end
-							return text
-						end)(),
-						" / "
-					),
-					best or -1
+					"camera_client: three fresh windows -- %s; best %s against the 0.3 budget",
+					table.concat(readings, " / "),
+					if best then string.format("%.3f", best) else "none"
 				)
 			)
-			-- A WINDOW THAT COULD NOT BE TAKEN AT ALL is a camera that is not updating, which is a
-			-- fault and not a hitch, so it fails here rather than waiving the budget.
+			-- NOT ONE FULL WINDOW IN THREE TRIES is a client that could not render 120 frames in 12
+			-- seconds, three times over. That is a fault, not a hitch, so it fails rather than
+			-- waiving the budget -- and the note above says how short each try was.
 			expect(best).to.be.ok()
 			expect((best :: number) < 0.3).to.equal(true)
 			-- A NOTE AND NOT ONLY A PRINT (task 367). This assertion failed 1 of 5 runs on main and

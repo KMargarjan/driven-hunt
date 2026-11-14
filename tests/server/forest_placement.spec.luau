@@ -848,7 +848,7 @@ return function()
 			humanoid.Parent = body
 			-- BOTH PATHS, because a failing assert in between would leave a 60-stud wall standing in
 			-- the arena for every case after this one (round 1, note).
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				-- THE SCREEN IS THE WHOLE DIFFERENCE between this case and the one above: one part
 				-- between the eye and the bed, and the same two points answer the other way.
 				expect(Forest.bedHidden(spot, { eye })).to.equal(true)
@@ -915,7 +915,7 @@ return function()
 			Forest.newDrive(0)
 			expect(Forest.planDrive(957, true) ~= nil).to.equal(true)
 			local row = Forest.roster()[1]
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				-- FAR FROM EVERY EYE: the bodies are made and nothing is in view.
 				local far = Vector3.new(0, 20000, 0)
 				Forest.bedSpot = function()
@@ -978,7 +978,7 @@ return function()
 			-- Past the second the line reaches every bed: a refusal that is this instant's is retried
 			-- until then, and only then becomes a skip (`stepPlacement`'s own rule).
 			local late = 1e6
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				-- ONE: A BED TEN STUDS FROM HIS HEAD. The arithmetic refuses it and NO ray is spent.
 				Forest.restSpot = function()
 					return eye.at + Vector3.new(0, 10, 0)

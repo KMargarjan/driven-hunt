@@ -65,7 +65,20 @@ local function waitForEmptySky(): boolean
 	while Weapon.flightCount() > 0 and os.clock() < clearBy do
 		task.wait()
 	end
-	return Weapon.flightCount() == 0
+	local clear = Weapon.flightCount() == 0
+	if not clear then
+		-- A SKY THAT DID NOT CLEAR IS SAID OUT LOUD AND COUNTED (round 1 note). The callers below
+		-- run anyway -- a case that refuses to run proves nothing either -- but a green line that
+		-- was measured with somebody else's shot still in it is now readable as such, and the
+		-- harness prints the count.
+		TestKit.notProven(
+			string.format(
+				"weapon_shot: %d pellet(s) still in the air after 2 s, so this case's counters may not be its own",
+				Weapon.flightCount()
+			)
+		)
+	end
+	return clear
 end
 
 -- AN AIM THE ACTION LIMITER DROPPED IS NOT AN ANSWER (task 367).
