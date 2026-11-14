@@ -734,6 +734,77 @@ quiet edit". Nobody has walked it: `GRID_PREVIEW` builds C1 only, so no drive ru
 CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
 the repo, transcribed verbatim and marked as the Director's. Newest first.
 
+### Task 365 - 2026-11-14 (the Director's, transcribed verbatim)
+
+> [DIRECTOR -> BUILDER] TASK 365: FOUR FLAG EXPIRY DATES MOVED SO THE HARNESS STAYS GREEN WHILE
+> KAREN IS AWAY. NO VALUE CHANGES. Karen is away until ~2026-11-15 ("see you next day morning or
+> even sunday do all staf as much as you can do not stop"). tests/server/flags.spec.luau fails the
+> harness for every branch when a row's expires date is past (task 364 measured it with
+> DEER_ROAD_LEAP: FAIL 32/34 on main). In src/shared/Flags/init.luau these rows expire before she
+> can decide them: STAG_BOUND_ON_SPOOK 2026-11-14, HIT_CLAIM 2026-11-15, RANGE 2026-11-17,
+> RANGE_SOLO 2026-11-20. Main is c8c6e178. Branch task-365-flag-dates from origin/main (create and
+> push; stop rojo serve before switching driven-hunt, re-serve after). Reviews in reviews/task-365/
+> (Task: 365, Round: 1). Transcribe this dispatch into TASKS.md as the Director's. The Director
+> opens the PR.
+>
+> WHAT KAREN SEES AFTER: nothing. No flag's value or default changes; her Forest Test is not touched.
+> DO:
+> 1. For each of the four rows: expires = "2026-12-01", with a one-line comment: moved by the
+>    Director 2026-11-14 because Karen is away; the keep/retire decision is hers on return (task 365).
+>    Nothing else in the rows changes.
+> MEASURED NOW: before | after, the four rows' expires and default values, read from the file and
+> from the live DEV flags read (tools/flags.py).
+> FOREST TEST PROOF: not needed; do not touch her Forest Test. Never flags.py --place forest clear.
+> Never Save, Publish or Drafts Commit.
+> CLICK PROOF: no control is added or changed.
+> NOT YOURS: any other row, any value or default, docs/design/.
+> GATE: `python tools/studio_mcp.py test` full run, PASS line at the code commit; test2 N/A. Then
+> tools/review.ps1.
+> CHECKED: L-127 BEFORE | AFTER per line. L-162 proofs at the code commit. L-136 name any flake that
+> fires before re-running.
+> ANSWER EVERY CHECKED FLAG BY NAME in your report, as "ANSWERED: L-<n> <what you did>".
+> Report at most 10 lines.
+> DEADLINE: 06:00 UTC 2026-11-14
+
+**Builder status, 2026-11-14:** done, awaiting review. The four rows moved to `2026-12-01`
+(17 days from the move, inside the 21-day ceiling). ONE THING THE DISPATCH DID NOT NAME:
+`tests/server/deer.spec.luau` pins `STAG_BOUND_ON_SPOOK.expires` **by value**, so moving the row
+alone failed that spec (measured: FAIL 29/34 at `2d7995b9`). The pin follows the move, exactly as
+task 364 did for the sibling `DEER_ROAD_LEAP` pin in the same file. Code commit `0b2069d3`,
+`[harness] PASS: 34/34 ... scope=all`.
+
+**Reviewer: PASS, round 1** (`reviews/task-365/RESULT.md`, verdict on `f508fba5`). Its notes are
+non-blocking and are queued here rather than fixed in another round (CLAUDE.md loop step 5):
+
+- **365(a)** `reviews/task-365/REQUEST.md` claim 4 and `ANSWERED: L-127` overstate the instrument
+  count. `tools/flags.py` is a thin wrapper over `studio_mcp.py run_flags`, which parses `expires`
+  and `default` **from the file text** (`flag_rows_in_text`, "PARSED FROM THE FILE, NOT EVALUATED IN
+  STUDIO", task 101). Only `override`, and therefore `effective`, is a live read of the `DHFlag_*`
+  attributes. The two readings could not have disagreed about the dates. Wording only; the dates and
+  the live `override none` / `effective off` are both correct as printed.
+- **365(b)** The `HIT_CLAIM`, `RANGE` and `RANGE_SOLO` rows each still carry `-- 21 days, the ceiling
+  in docs/design/feature-flags.md section 12.` directly above a date 37, 35 and 32 days from their
+  own `born`. The STAG row's trailing comment was reworded to "inside the 21-day ceiling" and these
+  three were not. Three lines, same fix.
+- **365(c)** Design §11 step 6b wants the new date's reason carried in `why`, which is what
+  `tools/flags.py` actually prints; task 364 put it in both `why` and a comment. Task 365 put it in
+  comments only (the dispatch asked for a comment), so a Director reading `flags.py` to make the
+  keep/retire call sees no sign the date moved.
+- **365(d)** `Flags.problems(defaults, today)` takes `today` as a parameter, so one line in
+  `tests/server/flags.spec.luau` -- `expect(#Flags.problems(Flags.DEFAULTS, <today + 7>)).to.equal(0)`
+  -- would make "no row rots this week" **assertable** instead of something someone has to remember.
+  This is the item that would have caught task 364's and task 365's rot a week early.
+- **365(e)** `RANGE_SOLO`'s effective value in **Karen's Forest Test** is unknown: that place was
+  correctly not read, and `tools/terrainbake.py` lists `RANGE_SOLO` among `KARENS_FLAGS` ("Karen has
+  set on purpose"). The MEASURED table's override column is the DEV place's only. Changes nothing --
+  no runtime path reads `expires` -- but the request's no-screenshot bullet claims more than it
+  measured.
+- **365(f)** One server assertion failed in the middle run at `0b2069d3` and was not captured by
+  name (the harness keeps no report file; that run was read through `tail`). The same commit then ran
+  2998/2998 green. Give it an identity with a named re-run before it lands in a round where it
+  matters. The Reviewer confirmed this change cannot be its cause: nothing at runtime reads
+  `expires`, and the one case that does is deterministic in its `today` argument.
+
 ### Task 364 - 2026-11-13 (the Director's, transcribed verbatim)
 
 > [DIRECTOR -> BUILDER] TASK 364: FLIP DRIVE_VARIETY'S DEFAULT TO ON IN GIT (KAREN'S OK). Karen,

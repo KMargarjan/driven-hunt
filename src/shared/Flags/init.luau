@@ -242,7 +242,9 @@ Flags.DEFAULTS = {
 		owner = "ServerScriptService.Weapon (and PlayerScripts.Weapon, for whether a claim is sent)",
 		born = "2026-10-25 task 266",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
-		expires = "2026-11-15",
+		-- MOVED to 2026-12-01 by the Director 2026-11-14: Karen is away; the keep/retire
+		-- decision is hers on return (task 365).
+		expires = "2026-12-01",
 		why = "A shot hits what the shooter saw: the client simulates its own bullet against its own "
 			.. "view and claims the hit, and the server validates it by rewinding the animal. OFF is "
 			.. "exactly the game before task 266 -- no claim is sent, none is accepted, and the shot "
@@ -300,7 +302,9 @@ Flags.DEFAULTS = {
 		owner = "ServerScriptService.Range",
 		born = "2026-10-27 task 298",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
-		expires = "2026-11-17",
+		-- MOVED to 2026-12-01 by the Director 2026-11-14: Karen is away; the keep/retire
+		-- decision is hers on return (task 365).
+		expires = "2026-12-01",
 		why = "The lobby shooting range: a lane, a target crossing it and back, and later the menu, "
 			.. "the gun and the board. OFF is exactly the game before task 298 -- no world has a "
 			.. "range built, nothing is spawned and no provider is relaxed.",
@@ -313,7 +317,9 @@ Flags.DEFAULTS = {
 		owner = "ServerScriptService.Range",
 		born = "2026-10-30 task 313",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
-		expires = "2026-11-20",
+		-- MOVED to 2026-12-01 by the Director 2026-11-14: Karen is away; the keep/retire
+		-- decision is hers on return (task 365).
+		expires = "2026-12-01",
 		why = "E at a station makes a man alone on the whole range: his animal crosses as much of "
 			.. "the lane as the built earth and his own bay allow (71-156 studs instead of 36, so "
 			.. "2.96-6.50 s at run instead of 1.50), and every other player's body is hidden for "
@@ -959,7 +965,9 @@ Flags.DEFAULTS = {
 		-- TRIGGER is `Brain`'s and the DRAWING is `Body`'s, both inside `ServerScriptService.Boar`.
 		owner = "ServerScriptService.Boar",
 		born = "2026-10-24 task 251 part 2",
-		expires = "2026-11-14", -- 21 days: the ceiling in feature-flags.md section 12
+		-- MOVED to 2026-12-01 by the Director 2026-11-14: Karen is away; the keep/retire
+		-- decision is hers on return (task 365).
+		expires = "2026-12-01", -- inside the 21-day ceiling in feature-flags.md section 12
 		why = "A red stag bounds once when he is spooked from a stand-still, instead of simply "
 			.. "running. OFF until TASKS.md 245c fixes the leap clip's measured hoof sink, which this "
 			.. "reuses and which a bound on flat ground is the case that shows.",
