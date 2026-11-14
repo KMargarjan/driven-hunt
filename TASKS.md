@@ -774,7 +774,10 @@ an unseeded seed. Item 2 is therefore done as the dispatch asked: `start(runtime
 seedIn)` and `waveAt(index, inPlace, varietyIn)` take the value by parameter, every spec site passes
 `false`, no case was deleted. Two things for the Director in `ESCALATE.md`: `DEER_ROAD_LEAP` expired
 at midnight UTC and was blocking the harness for every task (date moved, its own commit), and the
-dispatch's DEV pattern-line proof cannot be produced in DEV at all.
+dispatch's DEV pattern-line proof cannot be produced in DEV at all. Reviewer **PASS round 2**
+(`PASS (item 3 NOT PROVEN)` -- that item is the pattern line above). Notes queued as 364(a).
+
+| 364(a) | **Task 364's review notes** (non-blocking, none this change's defect) | todo | **(a) THE ARM THAT NOW SHIPS IS THE ONE NO SPEC DRIVES THROUGH THE SERVER GLUE**: every `tests/` site passes `false`, so `cellSchedule(true)`, `driveVariety()`, `driveSeed(driveNumber)` and `weighParty` have no ON-state case; the generator itself is covered one layer down (`Data.variedSchedule(.., true)`, `Data.generateDrive`). Queue ONE `cellSchedule(true)` / `waveAt(slot, nil, true)` case, as `inPlace` already has both arms. **(b)** `start`'s new `seedIn` has no case asserting it does anything -- it is dead while the variety is `false`; queue it with (a), where a pinned seed is the point. **(c)** `deer.spec`'s case title "is BORN OFF, with an owner, a birthday and an expiry inside 21 days" is now false (43 days, after task 364 moved the date); rename it. **(d)** the `Flags` header census `DARK (8)` was already wrong before task 364 and still is: 15 rows sit at `default = false` and seven are missing from the list (CARCASS_POSE, BOAR_ATTACH_BUDGET, DRIVE_AIMS_AT_PICKED_STAND, STAND_PICK, PLACEMENT_IN_PLACE, MAP_LOOK, MAP_PAINTED). **(e)** `Flags.MAX_FLAGS = 30` and 30 rows are declared: the next flag fails the tripwire. **(f) STAG_BOUND_ON_SPOOK expires 2026-11-14**, so at 00:00 UTC on 2026-11-15 it fails `flags.spec` and blocks the harness for every task, exactly as `DEER_ROAD_LEAP` did tonight -- the Boar owner's row, waiting on 245c. |
 
 ### Task 352b - 2026-11-12
 
