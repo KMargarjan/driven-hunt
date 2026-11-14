@@ -694,7 +694,7 @@ return function()
 			-- `gun_client.spec`'s `withNewGun` is the shape this follows.
 			local liveFlash = Effects.getViewmodelFlash()
 			Effects.setViewmodelFlash(nil)
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				local worldFrame = CFrame.new(10, 20, 30) * CFrame.Angles(0, math.pi / 3, 0)
 				local drawn = CFrame.new(-5, 2, -5)
 				local askedFor: { number? } = {}

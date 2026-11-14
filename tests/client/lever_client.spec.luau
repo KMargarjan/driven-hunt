@@ -91,7 +91,7 @@ local function withLeverDrawn(body)
 		return fakes[name]
 	end)
 
-	local ok, why = pcall(function()
+	local ok, why = TestKit.tracedCall(function()
 		Camera.Viewmodel.clear()
 		Camera.Viewmodel.setReload(nil)
 		task.wait(0.3) -- the source is asked four times a second, not per frame

@@ -100,6 +100,23 @@ function TestKit.note(text: string)
 	TestKit.stage("note:" .. string.sub(text, 1, 80))
 end
 
+-- RUN `fn`, AND KEEP THE LINE THAT ACTUALLY BROKE (task 367).
+--
+-- Twenty client cases are wrapped in `local ok, why = pcall(body)` ... `error(why, 0)`, so that the
+-- live viewmodel, camera and cursor are always put back. `error(why, 0)` rethrows the MESSAGE, and
+-- TestEZ then reports the rethrow site -- which is why `semiauto_client.spec:93` is the line in
+-- TASKS.md 281a(k) and `gun_client.spec:393` in this task's own run 4: both are the `error(why, 0)`
+-- in the wrapper, the same line for every case in the file, and neither says which claim failed.
+-- `debug.traceback` captures the stack WHERE the error happened, so the rethrown text still carries
+-- the real `*.spec:<line>` frame and `TestKit.compactFailure` finds it.
+--   debug.traceback  https://create.roblox.com/docs/reference/engine/libraries/debug#traceback
+function TestKit.tracedCall(fn: () -> ()): (boolean, string?)
+	local ok, why = xpcall(fn, function(err)
+		return tostring(err) .. "\n" .. debug.traceback(nil, 2)
+	end)
+	return ok, if ok then nil else tostring(why)
+end
+
 -- A CASE THAT COULD NOT RUN SAYS SO WHERE THE GATE CAN COUNT IT (task 367, TASKS.md 285).
 --
 -- Several live cases need something only a Play session can provide -- a player holding a loaded
