@@ -3,7 +3,7 @@
 Task: 364
 Round: 2
 Base: 840d01ed (origin/main)
-Code commit: f494440abbe7ffc09c9cae5c7e0cc2bdd6a2be45
+Code commit: cc35e3949433d5a94ebd54347987b34dc31570c6
 
 Karen, 2026-11-13 ~11:55 UTC, after playing her Forest Test with `DRIVE_VARIETY` on by attribute:
 *"variation also good"*. CLAUDE.md's feature-flags section: her OK flips the default in a later small
@@ -18,11 +18,12 @@ match, the drive, the tie and the teams are, and none of them is touched.
 ## Harness
 
 ```
-[harness] PASS: 34/34 checks @ f494440abbe7ffc09c9cae5c7e0cc2bdd6a2be45 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ cc35e3949433d5a94ebd54347987b34dc31570c6 (clean tree) scope=all
 ```
 
-`f494440a` IS the last commit to touch `src/`, `tests/` or `tools/`, and only this request followed
-it. An earlier clean 34/34 at `53bd250c` covers the same code minus one comment line
+`f494440a` is the last commit to touch `src/`, `tests/` or `tools/`; `cc35e394` is this request and
+nothing else, so the line covers the code and only paperwork follows it (git workflow step 4).
+An earlier clean 34/34 at `53bd250c` covers the same code minus the one census comment line
 (`PASS: 34/34 checks @ 53bd250ca0f40990eb3952501a75ae9fdc9a3cba (clean tree) scope=all`, 00:53 UTC).
 
 ## Claims
@@ -106,7 +107,7 @@ it. An earlier clean 34/34 at `53bd250c` covers the same code minus one comment 
 
 | what | commit | tree | line |
 |---|---|---|---|
-| gate, round 2 | `f494440a` | clean | `PASS: 34/34 ... scope=all` (01:00 UTC) |
+| gate, round 2 | `cc35e394` | clean | `PASS: 34/34 ... scope=all` (01:05 UTC) |
 | gate, round 2 | `53bd250c` | clean | `PASS: 34/34 ... scope=all` (00:53 UTC) |
 | gate, round 1 | `6a12123b` | clean | `PASS: 34/34 ... scope=all` (00:27 UTC) |
 | control | `840d01ed` | clean | `PASS: 34/34` twice (23:35, 23:40 UTC, before the date rolled) |
