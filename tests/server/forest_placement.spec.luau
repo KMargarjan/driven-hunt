@@ -684,7 +684,7 @@ return function()
 			expect(#rows > 0).to.equal(true)
 			local planned = Placement.plan(
 				951,
-				Forest.cellSchedule(),
+				Forest.cellSchedule(false),
 				Grid.animalsOf("c1"),
 				REST,
 				SPOOK,
@@ -727,7 +727,7 @@ return function()
 			-- print "the line finds it" for a group that is not in the wood.
 			local _made, _standing, fake = stubRuntime()
 			Forest.layoutForDrive(955, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(955, true) ~= nil).to.equal(true)
 			local first = Forest.roster()[1]
@@ -736,7 +736,7 @@ return function()
 			first.at = Vector3.new(0, 0, 0)
 			-- `step` reconciles FIRST and releases second, which is the live ordering: the stub's
 			-- `boars()` is empty, so those two bodies are gone by the time the slot fires.
-			local line = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
+			local line = Forest.step(Data.slotSeconds(1, Forest.cellSchedule(false)), true)
 			-- THE STATE WORD, and the ids that must go with it. Delete `row.ids = {}` from
 			-- `stepPlacement`'s reconcile and this line is the first that fails.
 			expect(first.state).to.equal("gone")
@@ -746,7 +746,7 @@ return function()
 			expect(string.find(line :: string, "gone", 1, true) ~= nil).to.equal(true)
 			-- ...AND THE SENTENCE THAT MUST NEVER BE PRINTED FOR IT.
 			expect(string.find(line :: string, "the line finds it", 1, true)).to.equal(nil)
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 		end)
 
 		it("makes a body when the switch is on and nothing at all when it is off", function()
@@ -757,7 +757,7 @@ return function()
 			-- answers nil before it reads anything at all.
 			local _made, _standing2, fake = stubRuntime()
 			Forest.layoutForDrive(954, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(954, true) ~= nil).to.equal(true)
 			expect(Forest.stepPlacement(0, false)).to.equal(nil)
@@ -767,7 +767,7 @@ return function()
 			expect(line ~= nil).to.equal(true)
 			expect(string.find(line :: string, "bed g954-s", 1, true) ~= nil).to.equal(true)
 			expect(Forest.placementStats().searches > 0).to.equal(true)
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 		end)
 	end)
 
@@ -911,7 +911,7 @@ return function()
 				end,
 			}
 			Forest.layoutForDrive(957, "c1")
-			Forest.start(fake :: any, 0)
+			Forest.start(fake :: any, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(957, true) ~= nil).to.equal(true)
 			local row = Forest.roster()[1]
@@ -949,7 +949,7 @@ return function()
 			end)
 			-- Restored on both paths, for the reason the ledger case below gives.
 			Forest.bedSpot = realBedSpot
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 			if not ok then
 				error(why, 0)
 			end
@@ -972,7 +972,7 @@ return function()
 			local realRestSpot = Forest.restSpot
 			local _made, _standing, fake = stubRuntime()
 			Forest.layoutForDrive(958, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(958, true) ~= nil).to.equal(true)
 			-- Past the second the line reaches every bed: a refusal that is this instant's is retried
@@ -1008,7 +1008,7 @@ return function()
 			-- RESTORED ON BOTH PATHS: a failing assert that left the owner's bed searcher stubbed
 			-- would poison `forest_stand.spec` and `forest_line.spec` behind it (round 1, note).
 			Forest.restSpot = realRestSpot
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 			if not ok then
 				error(why, 0)
 			end
@@ -1094,7 +1094,7 @@ return function()
 			-- the thing that differs between them.
 			local _made, _standing, fake = stubRuntime()
 			Forest.layoutForDrive(960, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			local function body(z: number)
 				return { status = { position = Vector3.new(0, 0, z) } }
 			end
@@ -1125,13 +1125,13 @@ return function()
 			-- here: 8.5 -> 17. Move `spacingStuds` and the target moves with it.
 			expect(2 * Data.LINE.spacingStuds).to.equal(17)
 			expect(Placement.CONFIG.fileFormedSeconds).to.equal(5)
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 		end)
 
 		it("orders a woken group once, counts a group the fright already took, and spawns nothing", function()
 			local made, standing, fake, where = stubRuntime()
 			Forest.layoutForDrive(961, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(961, true) ~= nil).to.equal(true)
 			local row = Forest.roster()[1]
@@ -1192,7 +1192,7 @@ return function()
 			end
 			expect(row.orderTries).to.equal(4)
 			expect(Forest.placementStats().noroute).to.equal(before + 3)
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 		end)
 
 		it("makes the file itself: one line, in march order, trailed from the leader's own feet", function()
@@ -1205,7 +1205,7 @@ return function()
 			-- the retry-cap case uses for `bedSpot`.
 			local _made, standing, fake, where = stubRuntime()
 			Forest.layoutForDrive(962, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(962, true) ~= nil).to.equal(true)
 			local row = Forest.roster()[1]
@@ -1296,7 +1296,7 @@ return function()
 			}, 11 + Placement.CONFIG.fileFormedSeconds + 0.1)
 			expect(Forest.fileGaps().woken.files).to.equal(before + 1)
 			expect(Forest.fileGaps().released.files).to.equal(0)
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 			TestKit.note(string.format("T4 file: %s, %d members, trail %.1f studs", file.id, #file.members, head.Y))
 		end)
 
@@ -1307,7 +1307,7 @@ return function()
 			-- road is the magic appearance Karen's *"not just apear magically"* is about.
 			local made, standing, fake = stubRuntime()
 			Forest.layoutForDrive(953, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(953, true) ~= nil).to.equal(true)
 			local first = Forest.roster()[1]
@@ -1319,7 +1319,7 @@ return function()
 			table.insert(standing, "Boar1")
 			table.insert(standing, "Boar2")
 			table.clear(made)
-			local held = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
+			local held = Forest.step(Data.slotSeconds(1, Forest.cellSchedule(false)), true)
 			expect(held ~= nil).to.equal(true)
 			expect(string.find(held :: string, "THE ROSTER'S", 1, true) ~= nil).to.equal(true)
 			expect(string.find(held :: string, "the line finds it", 1, true) ~= nil).to.equal(true)
@@ -1333,7 +1333,7 @@ return function()
 			refused.state = "record"
 			refused.ids = {}
 			refused.skipped = "nobed"
-			local hole = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
+			local hole = Forest.step(Data.slotSeconds(1, Forest.cellSchedule(false)), true)
 			expect(hole ~= nil).to.equal(true)
 			expect(string.find(hole :: string, "nothing is released for this slot", 1, true) ~= nil).to.equal(true)
 			expect(string.find(hole :: string, "nobed", 1, true) ~= nil).to.equal(true)
@@ -1341,9 +1341,9 @@ return function()
 			-- ...AND WITH THE SWITCH OFF THE SAME SLOT IS THE OLD PATH AND SAYS NOTHING ABOUT A ROSTER.
 			-- MEASURED: it answers nil here, for the same missing navmesh.
 			Forest.newDrive(0)
-			local plain = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), false)
+			local plain = Forest.step(Data.slotSeconds(1, Forest.cellSchedule(false)), false)
 			expect(plain == nil or string.find(plain :: string, "ROSTER", 1, true) == nil).to.equal(true)
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 		end)
 
 		it("parks a row that has spent its searches, and the drive wakes it once more", function()
@@ -1357,7 +1357,7 @@ return function()
 			-- drive and asserts the row ends up with a body.
 			local _made, _standing, fake = stubRuntime()
 			Forest.layoutForDrive(959, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(959, true) ~= nil).to.equal(true)
 			-- ONE ROW IN PLAY, so the counters are about it and not about twelve others.
@@ -1414,7 +1414,7 @@ return function()
 			-- is the bound the arithmetic in `CONFIG.searchesPerWake` is written against.
 			expect(Placement.reopenNow(row, 99, nil, 100, Placement.CONFIG.searchesPerWake)).to.equal(nil)
 			Forest.bedSpot = realBedSpot
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 			TestKit.note(string.format("T4 retry cap: %d searches over two wake cycles, one reopen", asks))
 		end)
 
@@ -1546,7 +1546,7 @@ return function()
 	local function laneSpawnOnce()
 		local made, _standing, fake = stubRuntime()
 		Forest.layoutForDrive(973, "c1")
-		Forest.start(fake, 0)
+		Forest.start(fake, 0, false, 1)
 		Forest.newDrive(0)
 		expect(Forest.planDrive(973, true) ~= nil).to.equal(true)
 		-- THE SLOT THE ROSTER LOSES. `Forest.roster()` hands out `state.roster` itself (its own
@@ -1566,10 +1566,10 @@ return function()
 			end
 			return out
 		end
-		local said = Forest.step(Data.slotSeconds(slot, Forest.cellSchedule()), true)
+		local said = Forest.step(Data.slotSeconds(slot, Forest.cellSchedule(false)), true)
 		Forest.computeRouteVia = realVia
 		local stats = Forest.placementStats()
-		Forest.start(nil :: any, 0)
+		Forest.start(nil :: any, 0, false, 1)
 		return {
 			slot = slot,
 			said = said,
@@ -1696,7 +1696,7 @@ return function()
 
 			local _made, standing, fake, where = stubRuntime()
 			Forest.layoutForDrive(971, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			expect(Forest.planDrive(971, true) ~= nil).to.equal(true)
 			local flier, walker = nil, nil
@@ -1749,7 +1749,7 @@ return function()
 			expect(after.laneSpawns).to.equal(0)
 			expect(after.laneSlots).to.equal(0)
 			expect(after.laneWorstSlot).to.equal(0)
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 		end)
 
 		it("counts a lane spawn when a slot the roster does not own reaches the spawn half", function()
@@ -1791,14 +1791,14 @@ return function()
 		local function oneRelease(stepsInside: number?)
 			local made, _standing, fake = stubRuntime()
 			Forest.layoutForDrive(973, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			-- A FRESH WINDOW, so `worst:` is THIS release and not whatever earlier spec file drove a
 			-- bigger one through `Forest.step`. `newDrive` does not do this for the reason its own
 			-- comment gives -- a drive ending would wipe its own bill before anyone read it.
 			Forest.releaseReset()
 			local realVia = Forest.computeRouteVia
-			local sawDuring, now = nil, Data.slotSeconds(1, Forest.cellSchedule())
+			local sawDuring, now = nil, Data.slotSeconds(1, Forest.cellSchedule(false))
 			local spun = 0
 			Forest.computeRouteVia = function(via)
 				-- READ FROM INSIDE THE CALL, which is the only place the answer can be `true`.
@@ -1826,7 +1826,7 @@ return function()
 			end
 			local said = Forest.step(now, false)
 			Forest.computeRouteVia = realVia
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 			return { said = said, sawDuring = sawDuring, spun = spun, made = #made, bill = Forest.releaseBill() }
 		end
 
@@ -1927,17 +1927,17 @@ return function()
 			-- fails exactly that way (`reviews/task-356/MEASUREMENTS.md` 6).
 			local _made, _standing, fake = stubRuntime()
 			Forest.layoutForDrive(973, "c1")
-			Forest.start(fake, 0)
+			Forest.start(fake, 0, false, 1)
 			Forest.newDrive(0)
 			Forest.releaseReset()
 			local realVia = Forest.computeRouteVia
-			local now = Data.slotSeconds(1, Forest.cellSchedule())
+			local now = Data.slotSeconds(1, Forest.cellSchedule(false))
 			Forest.computeRouteVia = function()
 				error("task 356 spec: the release raised", 0)
 			end
 			local ok, err = pcall(Forest.step, now, false)
 			Forest.computeRouteVia = realVia
-			Forest.start(nil :: any, 0)
+			Forest.start(nil :: any, 0, false, 1)
 			-- THE RAISE STILL REACHES THE CALLER, which is the behaviour the guard must not change.
 			expect(ok).to.equal(false)
 			expect(string.find(tostring(err), "the release raised", 1, true) ~= nil).to.equal(true)

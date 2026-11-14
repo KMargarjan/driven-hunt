@@ -1416,13 +1416,17 @@ return function()
 		it("is what BOTH release paths read, through one function", function()
 			-- ONE OWNER PER FACT (rule 3). `ForestTest.waveAt` is the only reader of the rows, so the
 			-- `LINE` path Karen plays and the pre-task-127 wave path cannot disagree about the drive.
+			-- THE SCRIPT'S OWN ROW IS WHAT IS COMPARED, so the variety is passed `false` by parameter
+			-- (task 364): since `DRIVE_VARIETY` ships ON, a `waveAt(slot)` that read the flag would be
+			-- comparing a GENERATED row against the fixed table and would pass only while no earlier
+			-- spec had called `start`. The generated arm is driven on its own below.
 			for slot = 1, #SCHEDULE.drive do
-				expect(ForestTest.waveAt(slot)).to.equal(Data.slotAt(slot, SCHEDULE.density, SCHEDULE))
+				expect(ForestTest.waveAt(slot, nil, false)).to.equal(Data.slotAt(slot, SCHEDULE.density, SCHEDULE))
 			end
 			-- The two silences are nil from both, which is what makes a silence cost its slot.
 			local silent = 0
 			for slot = 1, #SCHEDULE.drive do
-				if ForestTest.waveAt(slot) == nil then
+				if ForestTest.waveAt(slot, nil, false) == nil then
 					silent += 1
 				end
 			end

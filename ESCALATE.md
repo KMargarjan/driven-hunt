@@ -1,3 +1,57 @@
+## 2026-11-14 00:40 UTC, Task 364 -- the dispatch's own pattern-line proof is NOT OBTAINABLE in DEV
+
+**What was asked.** Item 3: *"one DEV Play drive showing the varied pattern's own log line with no
+override set"*.
+
+**Why it cannot be produced, measured and read, not assumed.**
+1. **No drive opens in DEV.** `ForestTestBoot.server.luau` returns at its fourth line when
+   `Map.EXPECTED_WORLD ~= "forest-test"`, and it is the only caller of `ForestTest.patternLine()`.
+   So in the DEV place no game script ever asks for that line, with the flag on or off.
+2. **A probe cannot ask for it either.** `patternLine` is a function on a ModuleScript, and the
+   StudioMCP thread "cannot `require` ANY ModuleScript" -- the harness docstring's own measurement
+   (2026-10-01/02), still true, and `ftplay.py server` is that same `execute_luau` call.
+3. **The one place a drive does open is Karen's Forest Test**, and this dispatch says *"Do not touch
+   her Forest Test at all in this task"*. I did not: `ftplay.py mode` answered `Edit` and nothing
+   else was called against it.
+
+**What was produced instead, and what it does and does not prove.** `python tools/flags.py`, read
+live from the DEV Studio: BEFORE `DRIVE_VARIETY off none off 2026-12-03`, AFTER `on none on
+2026-12-31`. That proves the shipped default a server with no override resolves. The step from there
+to the drive is ONE line -- `state.driveVariety = Flags.isOn("DRIVE_VARIETY")` in `ForestTest.start`
+-- and the generator below it is byte-identical to the one Karen played ON (`git diff
+840d01ed..HEAD -- src` touches `src/shared/Flags/init.luau` only). So the varied drive she OK'd and
+the varied drive a default-ON server deals are the same code reached by the same boolean; what is
+NOT measured in this task is that line printing in a live drive.
+
+**If the Director wants that line measured**, it needs either her Forest Test (one drive, read
+`[report]`'s next line) or a DEV place whose `Map.EXPECTED_WORLD` is `forest-test`, and the first is
+out of bounds tonight.
+
+## 2026-11-14 00:15 UTC, Task 364 -- DECISION: a flag that is not mine expired at midnight and blocks the harness for EVERY task
+
+**What fired.** `DEER_ROAD_LEAP`'s `expires` is `2026-11-13`. At 00:00 UTC today
+`flags.spec`'s rot tripwire began answering `1 problem(s)` and the whole harness fails with it
+(`flags.spec:136 Expected 0, got 1`, measured at `c54e3b74`, 00:02 UTC). It is nothing to do with
+task 364 and it blocks every gate run in the repo until someone moves it.
+
+**What I did, and why it is the smallest thing.** CLAUDE.md's feature-flags section and
+`Flags.problems`' own message both say the fix is one of three -- retire it, flip it, or move the
+date with a reason -- and that moving it "can never actually block a task; it can only force
+somebody to say the flag still has a reason to exist". It does, unchanged: the Director's 2026-10-24
+decision holds `DEER_ROAD_LEAP` and `STAG_BOUND_ON_SPOOK` dark until TASKS.md 245c fixes the measured
+hoof sink. So I moved the date to **2026-12-05** (21 days from the move) with that reason in the row
+and in `why`, in its own commit, and wrote it here.
+
+**Why it is a decision and not just a fix.** The dispatch says *"NOT YOURS: any other flag"*. I read
+that as "do not flip or retire another flag", not "let the suite stay red" -- but the Director owns
+that call: the commit is one line plus its comment and can be dropped or re-dated without touching
+anything else in task 364.
+
+**AND THE SAME THING HAPPENS AGAIN IN 24 HOURS.** `STAG_BOUND_ON_SPOOK` expires `2026-11-14`, so at
+00:00 UTC on 2026-11-15 the tripwire fires on it and the harness goes red again for whoever is
+working then. I did not touch it (it is not expired yet, and the dispatch says it is not mine).
+Both rows are the Boar owner's and both wait on 245c.
+
 ## 2026-11-13 ~20:10 UTC, Task 360b -- NEEDS KAREN: the eight-cell plant stands in her session, unsaved. Only she can make it durable
 
 **What happened, in order, all read by this session.** The backup was taken

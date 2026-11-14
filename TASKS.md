@@ -734,6 +734,51 @@ quiet edit". Nobody has walked it: `GRID_PREVIEW` builds C1 only, so no drive ru
 CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
 the repo, transcribed verbatim and marked as the Director's. Newest first.
 
+### Task 364 - 2026-11-13 (the Director's, transcribed verbatim)
+
+> [DIRECTOR -> BUILDER] TASK 364: FLIP DRIVE_VARIETY'S DEFAULT TO ON IN GIT (KAREN'S OK). Karen,
+> 2026-11-13 ~11:55 UTC, after playing her Forest Test with DRIVE_VARIETY on, verbatim: "variation
+> also good". CLAUDE.md "Feature flags": Karen's OK flips the default in a later small commit that
+> needs `test` like any src/ change. Main is 840d01ed. Branch task-364-drive-variety-default from
+> origin/main (create and push; stop rojo serve before switching driven-hunt, re-serve after).
+> Reviews in reviews/task-364/ (Task: 364, Round: 1). Transcribe this dispatch into TASKS.md as the
+> Director's. The Director opens the PR.
+> DEADLINE: 03:00 UTC 2026-11-14
+>
+> WHAT KAREN SEES AFTER: nothing new in her Forest Test (DRIVE_VARIETY is already ON there as a
+> place attribute); every other place and every new server gets the varied drive by default.
+> DO:
+> 1. In src/shared/Flags/init.luau, DRIVE_VARIETY's row: default = true, and its why/expires updated
+>    to say Karen's OK (date and her words). Do NOT retire the flag or delete the OFF branch in this
+>    task (retiring is a later task with an archive under backups/).
+> 2. Any spec that asserts the default value of DRIVE_VARIETY, or that relies on the OFF path by
+>    default, is updated to pass the value by parameter (the CLAUDE.md shape: the flagged path is
+>    reachable by parameter as well as by flag), never by deleting the case.
+> 3. MEASURED NOW: before | after, `Flags.isOn("DRIVE_VARIETY")` with no override, read in DEV
+>    (false | true); and one DEV Play drive showing the varied pattern's own log line with no
+>    override set.
+> FOREST TEST PROOF: not needed for the change itself (her place already has the attribute ON). Do
+> not touch her Forest Test at all in this task; if you must look, `python ftplay.py mode` first and
+> the attribute diff must be EMPTY. Never flags.py --place forest clear. Never Save, Publish or
+> Drafts Commit.
+> CLICK PROOF: no control is added or changed.
+> NOT YOURS: any other flag, docs/design/.
+> GATE: `python tools/studio_mcp.py test` full run, PASS line at the code commit; test2 N/A unless a
+> TWO_PLAYER_PATHS file is touched (then say so and stop: ESCALATE). Then tools/review.ps1.
+
+**Builder's status.** Done, round 2. The flip itself is the flag row and nothing else. No spec
+asserts `DRIVE_VARIETY`'s default BY NAME -- but round 1's claim that none reaches the gated path was
+WRONG, and the Reviewer caught it: `forest_placement.spec` (26 sites) and `forest_stand.spec` (6)
+call `ForestTest.start`, which is the one reader, so after the flip they dealt a GENERATED drive on
+an unseeded seed. Item 2 is therefore done as the dispatch asked: `start(runtime, now, varietyIn,
+seedIn)` and `waveAt(index, inPlace, varietyIn)` take the value by parameter, every spec site passes
+`false`, no case was deleted. Two things for the Director in `ESCALATE.md`: `DEER_ROAD_LEAP` expired
+at midnight UTC and was blocking the harness for every task (date moved, its own commit), and the
+dispatch's DEV pattern-line proof cannot be produced in DEV at all. Reviewer **PASS round 2**
+(`PASS (item 3 NOT PROVEN)` -- that item is the pattern line above). Notes queued as 364(a).
+
+| 364(a) | **Task 364's review notes** (non-blocking, none this change's defect) | todo | **(a) THE ARM THAT NOW SHIPS IS THE ONE NO SPEC DRIVES THROUGH THE SERVER GLUE**: every `tests/` site passes `false`, so `cellSchedule(true)`, `driveVariety()`, `driveSeed(driveNumber)` and `weighParty` have no ON-state case; the generator itself is covered one layer down (`Data.variedSchedule(.., true)`, `Data.generateDrive`). Queue ONE `cellSchedule(true)` / `waveAt(slot, nil, true)` case, as `inPlace` already has both arms. **(b)** `start`'s new `seedIn` has no case asserting it does anything -- it is dead while the variety is `false`; queue it with (a), where a pinned seed is the point. **(c)** `deer.spec`'s case title "is BORN OFF, with an owner, a birthday and an expiry inside 21 days" is now false (43 days, after task 364 moved the date); rename it. **(d)** the `Flags` header census `DARK (8)` was already wrong before task 364 and still is: 15 rows sit at `default = false` and seven are missing from the list (CARCASS_POSE, BOAR_ATTACH_BUDGET, DRIVE_AIMS_AT_PICKED_STAND, STAND_PICK, PLACEMENT_IN_PLACE, MAP_LOOK, MAP_PAINTED). **(e)** `Flags.MAX_FLAGS = 30` and 30 rows are declared: the next flag fails the tripwire. **(f) STAG_BOUND_ON_SPOOK expires 2026-11-14**, so at 00:00 UTC on 2026-11-15 it fails `flags.spec` and blocks the harness for every task, exactly as `DEER_ROAD_LEAP` did tonight -- the Boar owner's row, waiting on 245c. |
+
 ### Task 352b - 2026-11-12
 
 > [DIRECTOR -> BUILDER] TASK 352b: PUT 352'S FOREST INTO KAREN'S FOREST TEST AND PROVE IT THERE;

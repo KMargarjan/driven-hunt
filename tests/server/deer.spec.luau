@@ -1630,7 +1630,10 @@ return function()
 				expect(row.default).to.equal(false)
 				expect(row.owner).to.equal("ServerScriptService.Boar")
 				expect(row.born).to.equal("2026-10-23 task 245b")
-				expect(row.expires).to.equal("2026-11-13")
+				-- DATE MOVED on 2026-11-14 by task 364 (not this flag's task): the old date had
+				-- passed, so the rot tripwire failed the whole harness. The reason is unchanged --
+				-- dark until TASKS.md 245c. `ESCALATE.md`, 2026-11-14.
+				expect(row.expires).to.equal("2026-12-05")
 				expect(#row.why > 0).to.equal(true)
 			end)
 

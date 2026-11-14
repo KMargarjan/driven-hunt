@@ -58,9 +58,9 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- without touching this line, and that is the Director's call (docs/design/shop.md section 16
 -- item 8), not this task's.
 --
--- LIT (14): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+-- LIT (15): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
 --           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b),
---           AIM_REWIND and ZONES_FOLLOW_GAIT (task 312).
+--           AIM_REWIND and ZONES_FOLLOW_GAIT (task 312), DRIVE_VARIETY (task 364).
 -- DARK (8): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
 --           STAG_BOUND_ON_SPOOK (task 251 part 2), RANGE (task 298), HIT_CLAIM (task 266),
 --           RANGE_SOLO (task 313).
@@ -913,10 +913,16 @@ Flags.DEFAULTS = {
 		-- owner of what an animal does and what it looks like.
 		owner = "ServerScriptService.Boar",
 		born = "2026-10-23 task 245b",
-		expires = "2026-11-13", -- 21 days: the ceiling in feature-flags.md section 12
+		-- DATE MOVED on 2026-11-14 by task 364, which is NOT this flag's task: it expired at
+		-- midnight UTC and the rot tripwire blocks the harness for every task until somebody says
+		-- the flag still has a reason to exist (design section 11). It does, unchanged: the
+		-- Director's 2026-10-24 decision holds it dark until TASKS.md 245c fixes the hoof sink.
+		-- See `ESCALATE.md`, 2026-11-14 -- the Boar owner's own task may undo this line.
+		expires = "2026-12-05", -- 21 days from the move: the ceiling in feature-flags.md section 12
 		why = "A red deer bounds across the road instead of running flat over it: one leap per "
 			.. "crossing, at the clip's own speed, for an animal already running. OFF is the "
-			.. "crossing this game has always drawn.",
+			.. "crossing this game has always drawn. DATE MOVED 2026-11-14 (task 364): still held "
+			.. "dark by the Director's 2026-10-24 decision until TASKS.md 245c fixes the hoof sink.",
 	} :: FlagRow,
 
 	-- ---------------------------------------------------------------- THE STAG'S BOUND (task 251 part 2)
@@ -990,13 +996,18 @@ Flags.DEFAULTS = {
 	-- drawing from the shipped fifteen rows as a POOL; OFF is that script, byte for byte.
 	-- Note: docs/research/2026-11-12-drive-variety.md
 	DRIVE_VARIETY = {
-		default = false,
+		-- LIT 2026-11-13 (task 364). KAREN, having played her Forest Test with this on by
+		-- attribute: *"variation also good"*.
+		default = true,
 		-- The drive's own owner: the slot list is `ForestTest.SCHEDULE.drive` and the generator that
 		-- replaces it is in the same module.
 		owner = "ServerScriptService.ForestTest",
 		born = "2026-11-12 task 351",
-		expires = "2026-12-03", -- 21 days, the ceiling in feature-flags.md section 12
-		why = "The drive's slot list is GENERATED per drive from a seed (drive number + cell + server "
+		-- ACCEPTED by Karen, so not a 21-day dark path any more (design section 11 step 6a): it
+		-- stays until the losing branch is archived and the row retired.
+		expires = "2026-12-31",
+		why = 'KAREN\'S OK, 2026-11-13: *"variation also good"*, after playing it on in her Forest '
+			.. "Test. The drive's slot list is GENERATED per drive from a seed (drive number + cell + server "
 			.. "seed) out of the shipped script's own rows, acts, parties and routes as a pool: a "
 			.. "different mix of singles and groups, different group sizes, a different number of "
 			.. "groups, and the special acts (break-back, split, hold, the red stag) appearing "

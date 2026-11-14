@@ -126,7 +126,7 @@ return function()
 				end,
 			}
 			ForestTest.layoutForDrive(1, "c1")
-			ForestTest.start(fake, 0)
+			ForestTest.start(fake, 0, false, 1)
 			local layout = ForestTest.layout()
 			-- A WEST-FLANK STAND, which is the whole case: `Grid.sideOf` names it, and its own z is
 			-- hundreds of studs from the main road's z under it.
@@ -275,7 +275,7 @@ return function()
 				end,
 			}
 			ForestTest.layoutForDrive(1, "c1")
-			ForestTest.start(fake, 0)
+			ForestTest.start(fake, 0, false, 1)
 			local layout = ForestTest.layout()
 			ForestTest.clearPick(player.UserId)
 			ForestTest.newDrive(0)
@@ -869,7 +869,7 @@ return function()
 				table.clear(given)
 				ForestTest.layoutForDrive(500 + at, name)
 				expect(ForestTest.layoutName()).to.equal(name)
-				ForestTest.start(fake, 0)
+				ForestTest.start(fake, 0, false, 1)
 				expect(#given >= 1).to.equal(true)
 				local field = given[#given]
 				local layout = Data.layoutOf(name)
@@ -884,7 +884,7 @@ return function()
 				expect(spawnZ < field.bounds.maxZ).to.equal(true)
 			end
 			-- Put the module back: no runtime, the default layout.
-			ForestTest.start(nil :: any, 0)
+			ForestTest.start(nil :: any, 0, false, 1)
 			ForestTest.layoutForDrive(599, Data.DEFAULT_LAYOUT)
 			expect(ForestTest.layoutName()).to.equal(Data.DEFAULT_LAYOUT)
 		end)
@@ -902,7 +902,7 @@ return function()
 			-- not a server fact, and nobody here can hear it either way (`Data.ROAR`'s own comment).
 			-- What this case refuses is the regression -- the call being dropped, or building a
 			-- SECOND Part every time `start` runs.
-			ForestTest.start(nil :: any, 0)
+			ForestTest.start(nil :: any, 0, false, 1)
 			local part = Workspace:FindFirstChild(Data.ROAR.partName)
 			expect(part).to.be.ok()
 			local sound = (part :: Instance):FindFirstChild("Roar")
@@ -921,7 +921,7 @@ return function()
 				end
 			end
 			expect(before).to.equal(1)
-			ForestTest.start(nil :: any, 0)
+			ForestTest.start(nil :: any, 0, false, 1)
 			local after = 0
 			for _, child in ipairs(Workspace:GetChildren()) do
 				if child.Name == Data.ROAR.partName then
