@@ -1,3 +1,32 @@
+## 2026-11-14 00:40 UTC, Task 364 -- the dispatch's own pattern-line proof is NOT OBTAINABLE in DEV
+
+**What was asked.** Item 3: *"one DEV Play drive showing the varied pattern's own log line with no
+override set"*.
+
+**Why it cannot be produced, measured and read, not assumed.**
+1. **No drive opens in DEV.** `ForestTestBoot.server.luau` returns at its fourth line when
+   `Map.EXPECTED_WORLD ~= "forest-test"`, and it is the only caller of `ForestTest.patternLine()`.
+   So in the DEV place no game script ever asks for that line, with the flag on or off.
+2. **A probe cannot ask for it either.** `patternLine` is a function on a ModuleScript, and the
+   StudioMCP thread "cannot `require` ANY ModuleScript" -- the harness docstring's own measurement
+   (2026-10-01/02), still true, and `ftplay.py server` is that same `execute_luau` call.
+3. **The one place a drive does open is Karen's Forest Test**, and this dispatch says *"Do not touch
+   her Forest Test at all in this task"*. I did not: `ftplay.py mode` answered `Edit` and nothing
+   else was called against it.
+
+**What was produced instead, and what it does and does not prove.** `python tools/flags.py`, read
+live from the DEV Studio: BEFORE `DRIVE_VARIETY off none off 2026-12-03`, AFTER `on none on
+2026-12-31`. That proves the shipped default a server with no override resolves. The step from there
+to the drive is ONE line -- `state.driveVariety = Flags.isOn("DRIVE_VARIETY")` in `ForestTest.start`
+-- and the generator below it is byte-identical to the one Karen played ON (`git diff
+840d01ed..HEAD -- src` touches `src/shared/Flags/init.luau` only). So the varied drive she OK'd and
+the varied drive a default-ON server deals are the same code reached by the same boolean; what is
+NOT measured in this task is that line printing in a live drive.
+
+**If the Director wants that line measured**, it needs either her Forest Test (one drive, read
+`[report]`'s next line) or a DEV place whose `Map.EXPECTED_WORLD` is `forest-test`, and the first is
+out of bounds tonight.
+
 ## 2026-11-14 00:15 UTC, Task 364 -- DECISION: a flag that is not mine expired at midnight and blocks the harness for EVERY task
 
 **What fired.** `DEER_ROAD_LEAP`'s `expires` is `2026-11-13`. At 00:00 UTC today
