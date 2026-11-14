@@ -1,3 +1,28 @@
+## 2026-11-14 00:15 UTC, Task 364 -- DECISION: a flag that is not mine expired at midnight and blocks the harness for EVERY task
+
+**What fired.** `DEER_ROAD_LEAP`'s `expires` is `2026-11-13`. At 00:00 UTC today
+`flags.spec`'s rot tripwire began answering `1 problem(s)` and the whole harness fails with it
+(`flags.spec:136 Expected 0, got 1`, measured at `c54e3b74`, 00:02 UTC). It is nothing to do with
+task 364 and it blocks every gate run in the repo until someone moves it.
+
+**What I did, and why it is the smallest thing.** CLAUDE.md's feature-flags section and
+`Flags.problems`' own message both say the fix is one of three -- retire it, flip it, or move the
+date with a reason -- and that moving it "can never actually block a task; it can only force
+somebody to say the flag still has a reason to exist". It does, unchanged: the Director's 2026-10-24
+decision holds `DEER_ROAD_LEAP` and `STAG_BOUND_ON_SPOOK` dark until TASKS.md 245c fixes the measured
+hoof sink. So I moved the date to **2026-12-05** (21 days from the move) with that reason in the row
+and in `why`, in its own commit, and wrote it here.
+
+**Why it is a decision and not just a fix.** The dispatch says *"NOT YOURS: any other flag"*. I read
+that as "do not flip or retire another flag", not "let the suite stay red" -- but the Director owns
+that call: the commit is one line plus its comment and can be dropped or re-dated without touching
+anything else in task 364.
+
+**AND THE SAME THING HAPPENS AGAIN IN 24 HOURS.** `STAG_BOUND_ON_SPOOK` expires `2026-11-14`, so at
+00:00 UTC on 2026-11-15 the tripwire fires on it and the harness goes red again for whoever is
+working then. I did not touch it (it is not expired yet, and the dispatch says it is not mine).
+Both rows are the Boar owner's and both wait on 245c.
+
 ## 2026-11-13 ~20:10 UTC, Task 360b -- NEEDS KAREN: the eight-cell plant stands in her session, unsaved. Only she can make it durable
 
 **What happened, in order, all read by this session.** The backup was taken

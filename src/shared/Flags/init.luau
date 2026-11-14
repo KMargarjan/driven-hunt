@@ -913,10 +913,16 @@ Flags.DEFAULTS = {
 		-- owner of what an animal does and what it looks like.
 		owner = "ServerScriptService.Boar",
 		born = "2026-10-23 task 245b",
-		expires = "2026-11-13", -- 21 days: the ceiling in feature-flags.md section 12
+		-- DATE MOVED on 2026-11-14 by task 364, which is NOT this flag's task: it expired at
+		-- midnight UTC and the rot tripwire blocks the harness for every task until somebody says
+		-- the flag still has a reason to exist (design section 11). It does, unchanged: the
+		-- Director's 2026-10-24 decision holds it dark until TASKS.md 245c fixes the hoof sink.
+		-- See `ESCALATE.md`, 2026-11-14 -- the Boar owner's own task may undo this line.
+		expires = "2026-12-05", -- 21 days from the move: the ceiling in feature-flags.md section 12
 		why = "A red deer bounds across the road instead of running flat over it: one leap per "
 			.. "crossing, at the clip's own speed, for an animal already running. OFF is the "
-			.. "crossing this game has always drawn.",
+			.. "crossing this game has always drawn. DATE MOVED 2026-11-14 (task 364): still held "
+			.. "dark by the Director's 2026-10-24 decision until TASKS.md 245c fixes the hoof sink.",
 	} :: FlagRow,
 
 	-- ---------------------------------------------------------------- THE STAG'S BOUND (task 251 part 2)
