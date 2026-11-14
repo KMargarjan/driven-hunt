@@ -3,16 +3,16 @@
 Task: 367
 Round: 2
 Base: 014f70ba35a6a1ce2c16365a8a3a682b561e706a (origin/main)
-Code commit: bc543778491beefaf4581adfdb2285d5887e10ab
+Code commit: 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91
 
 Nothing in `src/` changed. Every fix is in `tests/` plus the harness's own report.
 
 ```
-[harness] PASS: 34/34 checks @ bc543778491beefaf4581adfdb2285d5887e10ab (clean tree) scope=all
-[harness] PASS: 34/34 checks @ bc543778491beefaf4581adfdb2285d5887e10ab (clean tree) scope=all
-[harness] PASS: 34/34 checks @ bc543778491beefaf4581adfdb2285d5887e10ab (clean tree) scope=all
-[harness] PASS: 34/34 checks @ bc543778491beefaf4581adfdb2285d5887e10ab (clean tree) scope=all
-[harness] PASS: 34/34 checks @ bc543778491beefaf4581adfdb2285d5887e10ab (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
 ```
 
 `test2` N/A: no `TWO_PLAYER_PATHS` file is touched. The files changed are `tests/TestKit.luau`,
@@ -25,8 +25,9 @@ Nothing in `src/` changed. Every fix is in `tests/` plus the harness's own repor
 
 5 full runs at `014f70ba` (origin/main), clean tree, each FAIL captured before the next run
 (`<runs-dir>/367/before-1..5.txt`); 5 full runs at the round-2 code commit
-(`<runs-dir>/367/r2-1..5.txt`). Round 1's own five, at `7f32cd84`, were 5 of 5 as well
-(`<runs-dir>/367/gate-1..5.txt`).
+(`<runs-dir>/367/f-1..5.txt`). Round 1's own five at `7f32cd84` (`gate-1..5.txt`) and the
+round-2 code's five at `bc543778` (`r2-1..5.txt`) were 5 of 5 as well -- fifteen green runs in a row
+across the three commits.
 
 | case | B1 | B2 | B3 | B4 | B5 | A1 | A2 | A3 | A4 | A5 |
 |---|---|---|---|---|---|---|---|---|---|---|
