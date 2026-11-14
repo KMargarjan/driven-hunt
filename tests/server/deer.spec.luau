@@ -2772,7 +2772,10 @@ return function()
 			expect(row.default).to.equal(false)
 			expect(row.owner).to.equal("ServerScriptService.Boar")
 			expect(row.born).to.equal("2026-10-24 task 251 part 2")
-			expect(row.expires).to.equal("2026-11-14")
+			-- DATE MOVED on 2026-11-14 by task 365 (not this flag's task): the old date was today,
+			-- so the rot tripwire would fail the whole harness tomorrow. The reason is unchanged --
+			-- dark until TASKS.md 245c, and the keep/retire decision is Karen's on her return.
+			expect(row.expires).to.equal("2026-12-01")
 			expect(#row.why > 0).to.equal(true)
 			-- ONE BOUNDARY, AND IT IS THE STAG'S OWN KIND ROW. With the row at its default this is
 			-- false, so no animal in the shipped game bounds -- and `MOVE`'s own default is false
