@@ -1,0 +1,9 @@
+[366l] 10353 forest MeshParts
+[366l] Automatic 1      335 frames mean 23.91 p95 28.92 | Opaque 2423487 tris, 171 draws | GPU 16.1676 msec
+[366l] Performance 1    369 frames mean 21.71 p95 26.98 | Opaque 1914595 tris, 225 draws | GPU 12.4956 msec
+[366l] Automatic 2      392 frames mean 20.45 p95 25.40 | Opaque 2423487 tris, 166 draws | GPU 8.3301 msec
+[366l] Performance 2    435 frames mean 18.41 p95 23.20 | Opaque 1914595 tris, 225 draws | GPU 7.8592 msec
+[366l] Automatic 3      431 frames mean 18.57 p95 23.13 | Opaque 2437463 tris, 125 draws | GPU 14.4628 msec
+[366l] Performance 3    463 frames mean 17.29 p95 21.04 | Opaque 1914595 tris, 186 draws | GPU 8.1477 msec
+[366l] Automatic   median p95 25.40 ms (23.13-28.92)
+[366l] Performance median p95 23.20 ms (21.04-26.98) -> -2.20 ms (-8.7 %)

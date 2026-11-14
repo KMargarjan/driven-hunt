@@ -1,0 +1,7 @@
+[366n] s1 430 frames mean 18.63 p95 23.72 worst 34.84 | forestParts 11254 | boars 528 | char -3905,-5062 | Opaque 2418401 tris, 162 draws | mem 5003
+[366n] s2 334 frames mean 23.95 p95 29.06 worst 35.12 | forestParts 11254 | boars 528 | char -3905,-5062 | Opaque 2418401 tris, 165 draws | mem 5004
+[366n] s3 318 frames mean 25.16 p95 30.04 worst 33.23 | forestParts 11254 | boars 528 | char -3905,-5062 | Opaque 2418401 tris, 171 draws | mem 5004
+[366n] s4 282 frames mean 28.40 p95 34.79 worst 39.38 | forestParts 11254 | boars 528 | char -3905,-5062 | Opaque 2418401 tris, 170 draws | mem 5006
+[366n] s5 342 frames mean 23.41 p95 28.14 worst 36.34 | forestParts 11254 | boars 528 | char -3905,-5062 | Opaque 2446353 tris, 172 draws | mem 5004
+[366n] s6 348 frames mean 23.02 p95 29.38 worst 35.77 | forestParts 11254 | boars 528 | char -3905,-5062 | Opaque 2446353 tris, 172 draws | mem 5004
+[366n] SPREAD over 6 identical samples: min 23.72 median 29.06 max 34.79 -> max/min = 1.47x (+46.7 %)

@@ -1,0 +1,11 @@
+[366f] ON  1        461 frames mean 17.36 p95 21.39 worst 39.53 | Opaque 2418401 tris, 121 draws | GPU 6.8050 msec | mem 4998 MB
+[366f] OFF 1        481 frames mean 16.67 p95 18.11 worst 19.91 | Opaque 2378153 tris, 266 draws | GPU 6.3570 msec | mem 4991 MB
+[366f] ON  2        337 frames mean 23.77 p95 28.19 worst 34.49 | Opaque 2418401 tris, 171 draws | GPU 15.7874 msec | mem 5004 MB
+[366f] OFF 2        473 frames mean 16.93 p95 19.73 worst 26.34 | Opaque 2378153 tris, 245 draws | GPU 6.6992 msec | mem 4994 MB
+[366f] ON  3        306 frames mean 26.15 p95 34.08 worst 47.56 | Opaque 2418401 tris, 168 draws | GPU 9.4230 msec | mem 5005 MB
+[366f] OFF 3        457 frames mean 17.51 p95 21.15 worst 23.82 | Opaque 2378153 tris, 245 draws | GPU 8.8236 msec | mem 4993 MB
+[366f] ON  4        272 frames mean 29.48 p95 35.94 worst 44.70 | Opaque 2431239 tris, 173 draws | GPU 8.8437 msec | mem 5007 MB
+[366f] OFF 4        467 frames mean 17.13 p95 20.71 worst 29.80 | Opaque 2390991 tris, 250 draws | GPU 11.3998 msec | mem 4998 MB
+[366f] STATION=c1s4 | forest ON  median p95 31.13 ms (range 21.39-35.94)
+[366f] STATION=c1s4 | forest OFF median p95 20.22 ms (range 18.11-21.15)
+[366f] the dealt cell's wood costs +10.92 ms p95 (+54.0 %) at this station; restored=true

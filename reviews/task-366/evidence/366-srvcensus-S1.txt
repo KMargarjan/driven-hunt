@@ -1,0 +1,13 @@
+[360b] Workspace.GridForest models=4431 parts=16344 desc=35771 children=1 [C1] PlantEpoch=58575af518ae6156
+[360b]   Workspace.GridForest/C1 models=4431 parts=16344 desc=35770
+[360b] ServerStorage.GridWood models=28535 parts=92052 desc=205247 children=7 [A1,A2,B1,B2,C2,D1,D2] PlantEpoch=nil
+[360b]   ServerStorage.GridWood/A1 models=4087 parts=12927 desc=28653
+[360b]   ServerStorage.GridWood/B1 models=4052 parts=14040 desc=29879
+[360b]   ServerStorage.GridWood/D1 models=4476 parts=13560 desc=31235
+[360b]   ServerStorage.GridWood/A2 models=4245 parts=12534 desc=29213
+[360b]   ServerStorage.GridWood/B2 models=3891 parts=12141 desc=27780
+[360b]   ServerStorage.GridWood/C2 models=4172 parts=15022 desc=32442
+[360b]   ServerStorage.GridWood/D2 models=3612 parts=11828 desc=26038
+[360b] Workspace models=9416 parts=27566 desc=66245
+[360b] Terrain TerrainEpoch=58575af518ae6156
+[360b] placeId=130094961655666 mode=Edit

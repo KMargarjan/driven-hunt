@@ -811,7 +811,19 @@ to remove. Measured in her Forest Test at `c311f278` (the commit `driven-hunt-ka
   of one held station, nothing changed, spread **23.72 -> 34.79 ms (+46.7 %)** -- wider than the
   +24 %/+30 % the trees were charged with.
 
-Full tables: `reviews/task-366/MEASUREMENTS.md`. The options and the decision the Director owns:
+- **the memory half of 360b's charge was never a client figure.** The same probe run against the
+  server DataModel and against the client, seconds apart in one Play, returns **byte-identical**
+  numbers (`BaseParts 565.4`, `GraphicsParts 14.9`, `Instances 336.6`): Studio's `Stats` reports the
+  PROCESS, and in Studio the server and the client are one. What the client's own share of the
+  dealt cell's wood costs IS measured -- **+11.1 MB of `GraphicsParts`**, 16.6 detached against
+  27.1-27.7 attached, in all four pairs. 360b's remaining ~600 MB is **not decomposed**.
+
+Round 2 after the Reviewer's two blocking findings, both measurement gaps and both closed by
+measurement: the memory reading above, and the 2x2 that varies residency on its own
+(camera up x forest ON/OFF: **+0.85 ms**, with the confound running against the claim).
+
+Full tables: `reviews/task-366/MEASUREMENTS.md`, with the probe output the conclusions rest on
+committed under `reviews/task-366/evidence/`. The options and the decision the Director owns:
 `ESCALATE.md`, 2026-11-14. No `src/`, `tests/` or `tools/` file changed.
 
 ### Task 365 - 2026-11-14 (the Director's, transcribed verbatim)

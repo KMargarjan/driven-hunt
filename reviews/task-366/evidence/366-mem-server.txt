@@ -1,0 +1,19 @@
+[366mem] total 4905.4 MB | Workspace parts 27488 | GridForest parts 16344 | ServerStorage.GridWood parts 92052
+[366mem] Internal = 4000.7 MB
+[366mem] Instances = 336.6 MB
+[366mem] Signals = 100.0 MB
+[366mem] LuaHeap = 1513.7 MB
+[366mem] Script = 283.2 MB
+[366mem] BaseParts = 565.4 MB
+[366mem] GraphicsMeshParts = 7.4 MB
+[366mem] GraphicsParticles = 11.9 MB
+[366mem] GraphicsParts = 14.9 MB
+[366mem] GraphicsSpatialHash = 2.3 MB
+[366mem] GraphicsTerrain = 58.2 MB
+[366mem] GraphicsTexture = 84.4 MB
+[366mem] GraphicsTextureCharacter = 6.0 MB
+[366mem] Sounds = 16.3 MB
+[366mem] TerrainVoxels = 128.5 MB
+[366mem] Gui = 99.0 MB
+[366mem] Animation = 21.2 MB
+[366mem] Navigation = 47.6 MB
