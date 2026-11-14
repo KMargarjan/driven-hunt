@@ -1,3 +1,87 @@
+## 2026-11-14 05:05 UTC, Task 367 -- a GAME defect the flake hunt uncovered: an emptied gun gets no licence advice, and the honest request is counted as a forgery
+
+**For the Director. Step "WHAT KAREN SEES AFTER" of the dispatch fires: a test exposed a real game
+defect, so no game behaviour was changed in task 367.** The test was made deterministic around it
+and this entry is the evidence.
+
+### What is wrong
+
+`src/server/Weapon/init.luau`, `onActionRequest`'s `"Aim"` branch:
+
+```lua
+local ammoAhead = state.loaded[state.selected] or state.ammo
+local range = row.RANGE_STUDS[ammoAhead]
+if type(range) ~= "number" then
+    stats.badRequests += 1
+    return "no-range"
+end
+```
+
+`"None"` is the empty-barrel value, not a hole. `src/shared/Shotgun/init.luau`, the `AmmoLoad` type,
+says so in as many words: *"`AmmoLoad = "Slug" | "Buck" | "None"` -- "None" is a VALUE, never a hole:
+a sparse array"*, and `StateMachine.apply` writes it on `Fire` (`next.loaded[state.selected] =
+"None"`) and on `Break`. So for a man whose selected barrel is empty:
+
+* `ammoAhead` is `"None"`, never the `or state.ammo` fallback the line was written for;
+* `row.RANGE_STUDS["None"]` is nil on every weapon (`Shotgun.CONFIG.RANGE_STUDS = { Slug = 330,
+  Buck = 100 }`, `Rifle` and `Lever` carry `{ Slug = ... }` only);
+* the branch returns `"no-range"` and **publishes no licence advice at all**;
+* and `stats.badRequests += 1` -- the FORGERY counter -- is charged to an honest aim.
+
+That is the opposite of the branch's own header, four lines above the bug:
+
+> *"THE RANGE IS THE NEXT SHOT'S. The loaded shell when the gun is loaded, and the SELECTED kind
+> when it is empty -- so the advice is about the shot he is about to take, and **an empty gun still
+> answers (a man who has just emptied it at a deer is exactly who needs telling)**."*
+
+### How it was measured
+
+`tests/server/licence_popup.spec.luau`'s live-handler case failed 2 of 5 runs of `origin/main` at
+`014f70ba` with `Expected value "nil" (nil), got "no-range" (string) instead`
+(`<runs-dir>/367/before-1.txt`, `before-2.txt`). The new note in that spec read the state the live
+handler was asked through, and named it:
+
+```
+note [server] licence_popup: the live arm runs on shotgun, barrel 1 held None before and Slug now; its row ranges 330
+```
+
+`None` before. The replayed clicks of `weapon-fire-reload-ammo` had emptied that barrel, and whether
+the barrel was reloaded again before this case ran was the coin toss. With the barrel loaded the
+same handler answers `nil` and advises correctly.
+
+### What Karen sees
+
+She fires both barrels at a red deer she has no licence for, aims again at the next one, and **no
+card appears** -- the one thing task 238 was built for. She has to close the action and reload before
+the game will warn her. Nobody has reported it because the card is easy to miss and the window is one
+reload long.
+
+### What task 367 did and did not do
+
+* **Did not** touch `src/`. The dispatch is explicit: *"Fixes go to TESTS ... unless a test exposes a
+  real game defect -- then STOP and ESCALATE with the evidence, do not change game behaviour in this
+  task."*
+* **Did** make the spec deterministic around it: the case now drives the owner's own `"Reload"` and
+  waits on the CONDITION (`loaded[selected] ~= "None"`) before it asks the live handler, and asserts
+  that precondition so a gun that cannot be loaded fails naming itself rather than failing the
+  licence claim for a reason that is not about licences.
+* So the suite no longer flips on this, **and the defect is still there.**
+
+### The fix, when the Director dispatches it
+
+One line, plus the case that bites:
+
+```lua
+local loadedAhead = state.loaded[state.selected]
+local ammoAhead = if loadedAhead ~= nil and loadedAhead ~= "None" then loadedAhead else state.ammo
+```
+
+and the `stats.badRequests` charge removed from that path -- an aim with an empty gun is not a forged
+packet. The case: an aim on a gun whose selected barrel is `"None"`, asserting `advice` is the
+licence reason and `badRequests` did not move. Queued as TASKS.md 367(a).
+
+---
+
 ## 2026-11-14 04:10 UTC, Task 366 -- there is no invisible wood. The cost is the trees Karen asked for, and the +30 % lobby row was an instrument fault
 
 **For the Director. Step 3 of the dispatch fires: no code was written.** Full tables and every probe
