@@ -68,6 +68,27 @@ local function waitForEmptySky(): boolean
 	return Weapon.flightCount() == 0
 end
 
+-- AN AIM THE ACTION LIMITER DROPPED IS NOT AN ANSWER (task 367).
+--
+-- `CONFIG.ACTION_RATE_LIMIT` is per second and the replayed right mouse spends the same bucket --
+-- the client asks for aim advice on the rising edge of ADS -- so a case that asks ONCE can be told
+-- "rate-limited" by the replay rather than by the rule it is testing. MEASURED:
+-- `weapon_shot.spec:2123`, `Expected value "nil" (nil), got "rate-limited" (string) instead`, once
+-- in seventeen runs. The Aim branch MOVES NOTHING -- no shell, no state, and no publish unless it
+-- has advice -- and a dropped ask increments `rateDropped`, never `aimQuestions`, so asking again
+-- costs nothing and changes no counter this file asserts on.
+local function aimOnce(player: Player, ray: any): string?
+	local why = Weapon.onActionRequest(player, "Aim", nil, ray)
+	for _ = 1, 3 do
+		if why ~= "rate-limited" then
+			break
+		end
+		task.wait(1.1)
+		why = Weapon.onActionRequest(player, "Aim", nil, ray)
+	end
+	return why
+end
+
 return function()
 	describe("shot validation", function()
 		local root = Vector3.new(0, 5, 0)
@@ -2051,7 +2072,7 @@ return function()
 			-- UNWIRED: the shipped list and nothing else -- the shooter's character, plus the
 			-- `WeaponEffects` folder IF one exists server-side (normally it does not).
 			Weapon.setIgnoreProvider(nil)
-			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(aimOnce(subject, ray)).to.equal(nil)
 			expect(#lists >= 1).to.equal(true)
 			local shipped = lists[1]
 			local effects = workspace:FindFirstChild("WeaponEffects")
@@ -2068,7 +2089,7 @@ return function()
 				return { marker }
 			end)
 			lists = {}
-			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(aimOnce(subject, ray)).to.equal(nil)
 			expect(sawMarker()).to.equal(true)
 			expect(#asked).to.equal(1)
 			expect(asked[1].player).to.equal(subject)
@@ -2120,7 +2141,7 @@ return function()
 				error("the range exploded")
 			end)
 			lists = {}
-			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(aimOnce(subject, ray)).to.equal(nil)
 			expect(#lists >= 1).to.equal(true)
 			expect(#lists[1]).to.equal(if effects ~= nil then 2 else 1)
 

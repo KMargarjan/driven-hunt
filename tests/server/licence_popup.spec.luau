@@ -74,6 +74,27 @@ local function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	return predicate()
 end
 
+-- AN AIM THE ACTION LIMITER DROPPED IS NOT AN ANSWER (task 367).
+--
+-- `CONFIG.ACTION_RATE_LIMIT` is per second and the replayed right mouse spends the same bucket --
+-- the client asks for aim advice on the rising edge of ADS -- so a case that asks ONCE can be told
+-- "rate-limited" by the replay rather than by the rule it is testing. MEASURED:
+-- `weapon_shot.spec:2123`, `Expected value "nil" (nil), got "rate-limited" (string) instead`, once
+-- in seventeen runs. The Aim branch MOVES NOTHING -- no shell, no state, and no publish unless it
+-- has advice -- and a dropped ask increments `rateDropped`, never `aimQuestions`, so asking again
+-- costs nothing and changes no counter this file asserts on.
+local function aimOnce(player: Player, ray: any): string?
+	local why = Weapon.onActionRequest(player, "Aim", nil, ray)
+	for _ = 1, 3 do
+		if why ~= "rate-limited" then
+			break
+		end
+		task.wait(1.1)
+		why = Weapon.onActionRequest(player, "Aim", nil, ray)
+	end
+	return why
+end
+
 return function()
 	-- ------------------------------------------------------------------ 1. THE AIM QUESTION
 	describe("the aim question", function()
@@ -199,7 +220,7 @@ return function()
 			Weapon.setLicenceProvider(nil)
 
 			local start = Weapon.stats()
-			local unlicensedWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local unlicensedWhy = aimOnce(subject, ray)
 			local afterUnlicensed = Weapon.stats()
 			local stateAfter = Weapon.getSnapshot(subject)
 
@@ -208,12 +229,12 @@ return function()
 			Weapon.setLicenceProvider(function(): { [string]: boolean }
 				return { reddeer = true }
 			end)
-			local licensedWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local licensedWhy = aimOnce(subject, ray)
 			local afterLicensed = Weapon.stats()
 
 			-- ...AND A FORGED RAY, which is refused on the trigger's own terms and publishes nothing.
 			Weapon.setLicenceProvider(nil)
-			local forgedWhy = Weapon.onActionRequest(subject, "Aim", nil, { origin = origin, direction = Vector3.zero })
+			local forgedWhy = aimOnce(subject, { origin = origin, direction = Vector3.zero })
 			local afterForged = Weapon.stats()
 
 			Weapon.setCast(nil)
@@ -398,14 +419,14 @@ return function()
 				return nil
 			end)
 			local start = Weapon.stats()
-			local unknownWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local unknownWhy = aimOnce(subject, ray)
 			local afterUnknown = Weapon.stats()
 
 			-- ARM 2: the SAME aim with a profile that is open and empty -- a table, so the rule bites.
 			Weapon.setLicenceProvider(function(): { [string]: boolean }
 				return {}
 			end)
-			local knownWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local knownWhy = aimOnce(subject, ray)
 			local afterKnown = Weapon.stats()
 
 			Weapon.setCast(nil)
