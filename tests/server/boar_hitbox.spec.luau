@@ -210,6 +210,25 @@ return function()
 				end)
 				handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0), kind)
 				trunk = handle.part
+				-- ANCHORED BEFORE THE STEP RUNS, SO THE ASSEMBLY CANNOT SETTLE (task 367).
+				--
+				-- MEASURED, and this is what the intermittent "unreachable by a flank ray" was:
+				--   design offset (-0.235, -1.068, -0.315) size (0.060, 0.240, 0.060)
+				--   built ZoneLegs1 at local (-0.239, -1.085, -0.283)
+				-- The built part had moved 0.032 studs in Z inside a box 0.060 studs deep, so the
+				-- DESIGN point this file probes with fell a couple of thousandths OUTSIDE the box
+				-- and a ray through it answered nil. The zone parts are `Anchored = false` and
+				-- welded to the trunk (`Body.buildZones`), so the whole assembly settles a fraction
+				-- of a stud while `runtime:run()` steps it -- and HOW FAR it settles depends on how
+				-- long the coat took to load, which is the run-to-run difference.
+				--
+				-- An anchored part welded into an assembly anchors the whole animal (`Body`'s own
+				-- comment), so anchoring here freezes every box at exactly where `buildZones` put
+				-- it. The only thing in `attachVisual` that reads `trunk.Anchored` is
+				-- `SetNetworkOwner(nil)`, which it correctly skips for an anchored part, and the
+				-- coat is still cloned, parented and welded.
+				-- Already anchored above, before the step ran; kept so the intent is local.
+				trunk.Anchored = true
 				geometry = Boar.kindGeometry(kind, CONFIG)
 				disconnect = runtime:run()
 				local started = os.clock()

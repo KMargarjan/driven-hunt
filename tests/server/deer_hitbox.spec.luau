@@ -291,6 +291,25 @@ return function()
 				end)
 				handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0), kind)
 				trunk = handle.part
+				-- ANCHORED BEFORE THE STEP RUNS, SO THE ASSEMBLY CANNOT SETTLE (task 367).
+				--
+				-- MEASURED, and this is what the intermittent "unreachable by a flank ray" was:
+				--   design offset (-0.235, -1.068, -0.315) size (0.060, 0.240, 0.060)
+				--   built ZoneLegs1 at local (-0.239, -1.085, -0.283)
+				-- The built part had moved 0.032 studs in Z inside a box 0.060 studs deep, so the
+				-- DESIGN point this file probes with fell a couple of thousandths OUTSIDE the box
+				-- and a ray through it answered nil. The zone parts are `Anchored = false` and
+				-- welded to the trunk (`Body.buildZones`), so the whole assembly settles a fraction
+				-- of a stud while `runtime:run()` steps it -- and HOW FAR it settles depends on how
+				-- long the coat took to load, which is the run-to-run difference.
+				--
+				-- An anchored part welded into an assembly anchors the whole animal (`Body`'s own
+				-- comment), so anchoring here freezes every box at exactly where `buildZones` put
+				-- it. The only thing in `attachVisual` that reads `trunk.Anchored` is
+				-- `SetNetworkOwner(nil)`, which it correctly skips for an anchored part, and the
+				-- coat is still cloned, parented and welded.
+				-- Already anchored above, before the step ran; kept so the intent is local.
+				trunk.Anchored = true
 				geometry = Boar.kindGeometry(kind, Boar.kindConfig(kind, CONFIG))
 				disconnect = runtime:run()
 				-- THE COAT GOES ON IN THE STEP AFTER THE SPAWN (`Runtime:step`), so this waits a few
@@ -345,6 +364,47 @@ return function()
 				end
 				runtime:destroy()
 				holder:Destroy()
+			end)
+
+			it("has every built box at the offset the design table gives it", function()
+				-- THE DRIFT THAT WAS INVISIBLE (task 367). Nothing in this file compared a BUILT
+				-- part's position with the design offset the geometric cases probe with, so a box
+				-- that had settled 0.032 studs inside its own 0.060-stud depth read as "unreachable
+				-- by a flank ray" -- intermittently, because how far it settled depended on how long
+				-- the coat took to load. The assembly is anchored before the step runs now, so the
+				-- answer should be zero; this case is what says so, and what will say otherwise.
+				--
+				-- 0.001 STUDS, NOT ZERO: `buildZones` positions through a CFrame and the comparison
+				-- makes two round trips through one, so the floor is float noise and not a budget.
+				local worst, worstName = 0, "none"
+				for _, zoneName in ipairs(geometry.zoneOrder) do
+					local seen = 0
+					for index, box in ipairs(geometry.zones[zoneName].boxes) do
+						for _, child in ipairs(trunk:GetChildren()) do
+							if child:IsA("BasePart") and child:GetAttribute("HitZone") == zoneName then
+								seen += 1
+								if seen == index then
+									local built = trunk.CFrame:PointToObjectSpace((child :: BasePart).Position)
+									local off = (built - box.offset).Magnitude
+									if off > worst then
+										worst, worstName = off, string.format("%s box %d", zoneName, index)
+									end
+									break
+								end
+							end
+						end
+						seen = 0
+					end
+				end
+				TestKit.note(
+					string.format(
+						"deer-hitbox %s: worst built-vs-design box offset %.4f studs (%s)",
+						kind,
+						worst,
+						worstName
+					)
+				)
+				expect(worst < 0.001).to.equal(true)
 			end)
 
 			it("is built from this kind's own measured volumes, and the trunk is not a target", function()
