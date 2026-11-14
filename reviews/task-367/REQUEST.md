@@ -3,18 +3,25 @@
 Task: 367
 Round: 3
 Base: 014f70ba35a6a1ce2c16365a8a3a682b561e706a (origin/main)
-Code commit: ea5b8ef19332b47620edf4673a2141b1973822fc
+Code commit: 81fd1c03fd9a6143b48dce0023346872a65c7a83
 
 Nothing in `src/` changed. Every fix is in `tests/` plus the harness's own report.
 
 ```
+[harness] PASS: 34/34 checks @ 81fd1c03fd9a6143b48dce0023346872a65c7a83 (clean tree) scope=all
 [harness] PASS: 34/34 checks @ ea5b8ef19332b47620edf4673a2141b1973822fc (clean tree) scope=all
 [harness] FAIL: 32/34 checks @ ea5b8ef19332b47620edf4673a2141b1973822fc (clean tree) scope=all
 ```
 
-The five-run table below is at `a753eedc`, the commit before this one; `ea5b8ef1` differs from it
-ONLY by reverting `tests/server/match_outfit.spec.luau` to main's content byte for byte (see
-round 3), and it has 2 runs: 1 PASS, 1 FAIL.
+`81fd1c03` IS `ea5b8ef1` PLUS PAPERWORK ONLY (`TASKS.md` and this file; `git diff --name-only
+ea5b8ef1..81fd1c03`), and the code commit is named here rather than `ea5b8ef1` for the reason
+CLAUDE.md allows and `tools/agents.py` enforces: `agents.py` also diffs `<code commit>~1..HEAD`, and
+`ea5b8ef1~1` still contains the `match_outfit.spec` conversion that commit REVERTED -- so naming
+`ea5b8ef1` pulled a file back into `TWO_PLAYER_PATHS` that is byte-identical to main at HEAD. Naming
+the later commit only makes the bound stricter.
+
+The five-run table below is at `a753eedc`; `ea5b8ef1` differs from it ONLY by reverting
+`tests/server/match_outfit.spec.luau` to main's content byte for byte, and had 1 PASS and 1 FAIL.
 
 **3 of 5 at this commit, not 5 of 5. The target is NOT met and the two cases that
 miss it are named below** (`weapon_shot`'s live claim counters, `semiauto_client`'s drawn
