@@ -47,6 +47,27 @@ local function angleDeg(a: Vector3, b: Vector3): number
 	return math.deg(math.acos(math.clamp(a.Unit:Dot(b.Unit), -1, 1)))
 end
 
+-- NOTHING OF ANYBODY ELSE'S IN THE AIR (task 367).
+--
+-- `Weapon.setCast` is the OWNER's one caster and `Weapon.stats()` is the owner's one set of
+-- counters, so a shot the replayed clicks fired a moment ago lands its `Flight` segments inside a
+-- staged cast stub and its claim inside a staged before/after pair. MEASURED, the 5th run of this
+-- task's AFTER set: `self-block claim: rifle/Slug, 1 report(s), accepted 3 -> 3, refusedClaimBy
+-- [claim-blocked=1 claim-moved=1]` -- TWO refusals counted where the case made ONE claim, and the
+-- stub's `firstOrigin` had been captured from the other shot, so its reach arithmetic was measured
+-- from a muzzle that was not this one's. That is TASKS.md 285's "ran in 2 of 5 runs and FAILED both
+-- times (claim-blocked, accepted 3 -> 3)", in one line, from the case's own note.
+--
+-- The player's own fire limiter is per second and each of these cases fires as that player, so once
+-- the sky is empty nothing of his can launch inside the case's own window either.
+local function waitForEmptySky(): boolean
+	local clearBy = os.clock() + 2
+	while Weapon.flightCount() > 0 and os.clock() < clearBy do
+		task.wait()
+	end
+	return Weapon.flightCount() == 0
+end
+
 return function()
 	describe("shot validation", function()
 		local root = Vector3.new(0, 5, 0)
@@ -1048,6 +1069,8 @@ return function()
 				asked += 1
 				return zone.CFrame
 			end)
+			-- Nothing of anybody else's in the air before this case stages its own (task 367).
+			waitForEmptySky()
 			local wasPolicy = Weapon.setClaimPolicy(true)
 			Weapon.setDriveOpenProvider(function(): boolean
 				return true
@@ -1334,6 +1357,8 @@ return function()
 				local seconds = if type(at) == "number" then at - workspace:GetServerTimeNow() else 0
 				return CFrame.new(zone.Position + travel * seconds)
 			end)
+			-- Nothing of anybody else's in the air before this case stages its own (task 367).
+			waitForEmptySky()
 			local wasPolicy = Weapon.setClaimPolicy(true)
 			Weapon.setDriveOpenProvider(function(): boolean
 				return true
@@ -1597,6 +1622,8 @@ return function()
 			Weapon.setHistoryProvider(function()
 				return zone.CFrame
 			end)
+			-- Nothing of anybody else's in the air before this case stages its own (task 367).
+			waitForEmptySky()
 			local wasPolicy = Weapon.setClaimPolicy(true)
 			Weapon.setDriveOpenProvider(function(): boolean
 				return true
@@ -1821,6 +1848,8 @@ return function()
 			Weapon.setHistoryProvider(function()
 				return zone.CFrame
 			end)
+			-- Nothing of anybody else's in the air before this case stages its own (task 367).
+			waitForEmptySky()
 			local wasPolicy = Weapon.setClaimPolicy(true)
 			Weapon.setDriveOpenProvider(function(): boolean
 				return true

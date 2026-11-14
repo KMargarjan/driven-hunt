@@ -153,10 +153,15 @@ function TestKit.compactFailure(failure: any): string
 		local trimmed = string.match(line, "^%s*(.-)%s*$") or line
 		if trimmed ~= "" then
 			if message == nil then
+				-- THE MESSAGE IS THE FIRST LINE AND IT IS NEVER READ AS A FRAME. TestEZ puts its
+				-- own position in front of the text, so a message can itself contain `.spec:<line>`
+				-- -- and taking that as the frame printed the WRAPPER's line twice and never the
+				-- stack's own (measured: `semiauto_client.spec:84 ... | ...spec:84`, task 367).
 				message = trimmed
-			end
-			-- The first frame inside a spec file, whichever side it is on.
-			if where == nil and string.find(trimmed, ".spec:", 1, true) ~= nil then
+			elseif where == nil and string.find(trimmed, ".spec:", 1, true) ~= nil then
+				-- The INNERMOST frame inside a spec file: `debug.traceback` lists them from where
+				-- the error was raised outwards, so the first one is the claim that broke rather
+				-- than the `error(why, 0)` that rethrew it.
 				where = trimmed
 			end
 		end
