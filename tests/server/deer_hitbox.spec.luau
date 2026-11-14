@@ -157,6 +157,38 @@ return function()
 			-- removes animals while this file runs. Nothing of this animal's is excluded -- the
 			-- trunk, its twelve volumes and its coat all live under `holder` -- so no claim here is
 			-- weakened: what is removed is a world the measurement was never about.
+			-- HOW FAR EVERY BUILT BOX IS FROM THE DESIGN OFFSET THIS FILE PROBES WITH (task 367).
+			--
+			-- `Body.buildZones` has the only writer -- `zonePart.CFrame = trunk.CFrame *
+			-- CFrame.new(box.offset)` -- and then welds it, so the two should agree exactly. They do
+			-- not always: measured 0.032 studs on a calf leg box 0.060 studs deep (which read as
+			-- "unreachable by a flank ray") and 0.1405 studs on a calf rear box one run in five. The
+			-- engine solves a welded assembly on a physics step, so the agreement is reached a frame
+			-- or two after the build rather than inside it -- which is why waiting for it is the
+			-- answer and a fixed delay was not.
+			local function worstBoxDrift(): (number, string)
+				local worst, worstName = 0, "none"
+				for _, zoneName in ipairs(geometry.zoneOrder) do
+					local built = {}
+					for _, child in ipairs(trunk:GetChildren()) do
+						if child:IsA("BasePart") and child:GetAttribute("HitZone") == zoneName then
+							table.insert(built, child)
+						end
+					end
+					for index, box in ipairs(geometry.zones[zoneName].boxes) do
+						local part = built[index]
+						if part ~= nil then
+							local at = trunk.CFrame:PointToObjectSpace(part.Position)
+							local off = (at - box.offset).Magnitude
+							if off > worst then
+								worst, worstName = off, string.format("%s box %d", zoneName, index)
+							end
+						end
+					end
+				end
+				return worst, worstName
+			end
+
 			local function ownSpace(): { Instance }
 				local ignore: { Instance } = { Workspace.Terrain }
 				for _, child in ipairs(Workspace:GetChildren()) do
@@ -345,6 +377,17 @@ return function()
 					end
 				end
 				task.wait()
+				-- EVERY BUILT BOX AGREES WITH ITS DESIGN OFFSET BEFORE ANYTHING IS PROBED, waited for
+				-- on the CONDITION (task 367). See `worstBoxDrift`: the engine reaches that agreement
+				-- a physics step or two after `buildZones` welds, and every geometric case below
+				-- probes with the DESIGN offset, so a box still a tenth of a stud out answers nil for
+				-- a reason that is not about the animal. Two seconds is 120 steps at 60 Hz; if it
+				-- still disagrees the case below fails and NAMES the number.
+				local settleBy = os.clock() + 2
+				while worstBoxDrift() >= 0.001 and os.clock() < settleBy do
+					task.wait()
+				end
+
 				-- THE MESH BECOMES QUERYABLE FOR THIS FILE ONLY, and `afterAll` puts it back. In the
 				-- game it is `false` and must stay so (`Body.attachVisual`: *"A RAY MUST NEVER MEET
 				-- THIS"*); here it is the instrument.
@@ -369,33 +412,14 @@ return function()
 			it("has every built box at the offset the design table gives it", function()
 				-- THE DRIFT THAT WAS INVISIBLE (task 367). Nothing in this file compared a BUILT
 				-- part's position with the design offset the geometric cases probe with, so a box
-				-- that had settled 0.032 studs inside its own 0.060-stud depth read as "unreachable
-				-- by a flank ray" -- intermittently, because how far it settled depended on how long
-				-- the coat took to load. The assembly is anchored before the step runs now, so the
-				-- answer should be zero; this case is what says so, and what will say otherwise.
+				-- that had not yet settled read as "unreachable by a flank ray" -- intermittently,
+				-- and with nothing in the failure to say so. `beforeAll` now waits for the agreement
+				-- on the condition; this case is what says it was reached, and what names the number
+				-- when it was not.
 				--
-				-- 0.001 STUDS, NOT ZERO: `buildZones` positions through a CFrame and the comparison
+				-- 0.001 STUDS, NOT ZERO: `buildZones` positions through a CFrame and this comparison
 				-- makes two round trips through one, so the floor is float noise and not a budget.
-				local worst, worstName = 0, "none"
-				for _, zoneName in ipairs(geometry.zoneOrder) do
-					local seen = 0
-					for index, box in ipairs(geometry.zones[zoneName].boxes) do
-						for _, child in ipairs(trunk:GetChildren()) do
-							if child:IsA("BasePart") and child:GetAttribute("HitZone") == zoneName then
-								seen += 1
-								if seen == index then
-									local built = trunk.CFrame:PointToObjectSpace((child :: BasePart).Position)
-									local off = (built - box.offset).Magnitude
-									if off > worst then
-										worst, worstName = off, string.format("%s box %d", zoneName, index)
-									end
-									break
-								end
-							end
-						end
-						seen = 0
-					end
-				end
+				local worst, worstName = worstBoxDrift()
 				TestKit.note(
 					string.format(
 						"deer-hitbox %s: worst built-vs-design box offset %.4f studs (%s)",
@@ -404,6 +428,10 @@ return function()
 						worstName
 					)
 				)
+				-- ...AND IT IS NOT VACUOUS: a loop that found no built part would report "none",
+				-- which is the one name this must refuse (standing rule E -- a metric that reads
+				-- 0.00 for everything is suspect until it is shown to have measured something).
+				expect(worstName).never.to.equal("none")
 				expect(worst < 0.001).to.equal(true)
 			end)
 
