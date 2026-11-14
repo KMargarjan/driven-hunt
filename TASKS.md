@@ -734,6 +734,45 @@ quiet edit". Nobody has walked it: `GRID_PREVIEW` builds C1 only, so no drive ru
 CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
 the repo, transcribed verbatim and marked as the Director's. Newest first.
 
+### Task 365 - 2026-11-14 (the Director's, transcribed verbatim)
+
+> [DIRECTOR -> BUILDER] TASK 365: FOUR FLAG EXPIRY DATES MOVED SO THE HARNESS STAYS GREEN WHILE
+> KAREN IS AWAY. NO VALUE CHANGES. Karen is away until ~2026-11-15 ("see you next day morning or
+> even sunday do all staf as much as you can do not stop"). tests/server/flags.spec.luau fails the
+> harness for every branch when a row's expires date is past (task 364 measured it with
+> DEER_ROAD_LEAP: FAIL 32/34 on main). In src/shared/Flags/init.luau these rows expire before she
+> can decide them: STAG_BOUND_ON_SPOOK 2026-11-14, HIT_CLAIM 2026-11-15, RANGE 2026-11-17,
+> RANGE_SOLO 2026-11-20. Main is c8c6e178. Branch task-365-flag-dates from origin/main (create and
+> push; stop rojo serve before switching driven-hunt, re-serve after). Reviews in reviews/task-365/
+> (Task: 365, Round: 1). Transcribe this dispatch into TASKS.md as the Director's. The Director
+> opens the PR.
+>
+> WHAT KAREN SEES AFTER: nothing. No flag's value or default changes; her Forest Test is not touched.
+> DO:
+> 1. For each of the four rows: expires = "2026-12-01", with a one-line comment: moved by the
+>    Director 2026-11-14 because Karen is away; the keep/retire decision is hers on return (task 365).
+>    Nothing else in the rows changes.
+> MEASURED NOW: before | after, the four rows' expires and default values, read from the file and
+> from the live DEV flags read (tools/flags.py).
+> FOREST TEST PROOF: not needed; do not touch her Forest Test. Never flags.py --place forest clear.
+> Never Save, Publish or Drafts Commit.
+> CLICK PROOF: no control is added or changed.
+> NOT YOURS: any other row, any value or default, docs/design/.
+> GATE: `python tools/studio_mcp.py test` full run, PASS line at the code commit; test2 N/A. Then
+> tools/review.ps1.
+> CHECKED: L-127 BEFORE | AFTER per line. L-162 proofs at the code commit. L-136 name any flake that
+> fires before re-running.
+> ANSWER EVERY CHECKED FLAG BY NAME in your report, as "ANSWERED: L-<n> <what you did>".
+> Report at most 10 lines.
+> DEADLINE: 06:00 UTC 2026-11-14
+
+**Builder status, 2026-11-14:** done, awaiting review. The four rows moved to `2026-12-01`
+(17 days from the move, inside the 21-day ceiling). ONE THING THE DISPATCH DID NOT NAME:
+`tests/server/deer.spec.luau` pins `STAG_BOUND_ON_SPOOK.expires` **by value**, so moving the row
+alone failed that spec (measured: FAIL 29/34 at `2d7995b9`). The pin follows the move, exactly as
+task 364 did for the sibling `DEER_ROAD_LEAP` pin in the same file. Code commit `0b2069d3`,
+`[harness] PASS: 34/34 ... scope=all`.
+
 ### Task 364 - 2026-11-13 (the Director's, transcribed verbatim)
 
 > [DIRECTOR -> BUILDER] TASK 364: FLIP DRIVE_VARIETY'S DEFAULT TO ON IN GIT (KAREN'S OK). Karen,
