@@ -609,7 +609,8 @@ return function()
 			TestKit.note(
 				string.format(
 					"licence_popup 368: %s on %s aimed with the selected barrel holding %s (range %s)"
-						.. " and the selection %s (range %s); answered %s, advised +%s; reload answered %s",
+						.. " and the selection %s (range %s); answered %s, advised +%s, badRequests +%s;"
+						.. " reload answered %s",
 					subject.Name,
 					heldId,
 					tostring(measured),
@@ -618,6 +619,7 @@ return function()
 					tostring(selection ~= nil and heldRow.RANGE_STUDS[selection]),
 					tostring(why),
 					if after ~= nil and before ~= nil then tostring(after.aimAdvised - before.aimAdvised) else "n/a",
+					if after ~= nil and before ~= nil then tostring(after.badRequests - before.badRequests) else "n/a",
 					if reloadWhy ~= nil then reloadWhy else "nil (or no reload was needed)"
 				)
 			)

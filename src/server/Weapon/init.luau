@@ -2927,7 +2927,12 @@ local function onActionRequest(player: Player, kind: any, ammo: any, aim: any): 
 			stats.badRequests += 1
 			return whyRay or "bad-request"
 		end
-		local ammoAhead = state.loaded[state.selected] or state.ammo
+		-- `"None"` IS A VALUE AND NOT A HOLE (task 368). This read was `state.loaded[state.selected]
+		-- or state.ammo`, so the `or` could never fire on an emptied barrel: `RANGE_STUDS["None"]` is
+		-- nil on every weapon, and the man the paragraph above promises to tell got "no-range" and NO
+		-- CARD. `ESCALATE.md`, 2026-11-14, carries the reading.
+		local loadedAhead = state.loaded[state.selected]
+		local ammoAhead = if loadedAhead ~= nil and loadedAhead ~= "None" then loadedAhead else state.ammo
 		local range = row.RANGE_STUDS[ammoAhead]
 		if type(range) ~= "number" then
 			-- A DATA FAULT, NOT AN ANSWER. Every shipped row carries every kind's range; answering
